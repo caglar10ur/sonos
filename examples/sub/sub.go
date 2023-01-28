@@ -34,27 +34,29 @@ func main() {
 		log.Fatalf("%s", err)
 	}
 
-	if zp.IsCoordinator() {
-		fmt.Printf("Connected to %s\t%s\t%s (coordinator %t)\n", zp.RoomName(), zp.ModelName(), zp.SerialNum(), zp.IsCoordinator())
+	if !zp.IsCoordinator() {
+		log.Fatalf("Not a coordinator")
+	}
 
-		sid, err := son.Subscribe(ctx, zp, zp.AVTransport)
-		if err != nil {
-			log.Fatalf("%s", err)
-		}
+	fmt.Printf("Connected to %s\t%s\t%s\n", zp.RoomName(), zp.ModelName(), zp.SerialNum())
 
-		time.Sleep(10 * time.Second)
+	sid, err := son.Subscribe(ctx, zp, zp.AVTransport)
+	if err != nil {
+		log.Fatalf("%s", err)
+	}
 
-		err = son.Renew(ctx, zp, zp.AVTransport, sid)
-		if err != nil {
-			log.Fatalf("%s", err)
-		}
+	time.Sleep(10 * time.Second)
 
-		time.Sleep(10 * time.Second)
+	err = son.Renew(ctx, zp, zp.AVTransport, sid)
+	if err != nil {
+		log.Fatalf("%s", err)
+	}
 
-		err = son.Unsubscribe(ctx, zp, zp.AVTransport, sid)
-		if err != nil {
-			log.Fatalf("%s", err)
-		}
+	time.Sleep(10 * time.Second)
+
+	err = son.Unsubscribe(ctx, zp, zp.AVTransport, sid)
+	if err != nil {
+		log.Fatalf("%s", err)
 	}
 
 	<-ctx.Done()

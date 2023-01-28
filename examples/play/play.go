@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"time"
@@ -9,16 +10,26 @@ import (
 	"github.com/caglar10ur/sonos"
 )
 
-func main() {
-	if len(os.Args) != 3 {
-		fmt.Printf("Usage: %s [room name] [media url]\n", os.Args[0])
-		return
-	}
+var (
+	room = flag.String("room", "Living Room", "Room name")
+)
 
+func init() {
+	flag.Parse()
+}
+
+func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
 
-	zp, err := sonos.FindRoom(ctx, os.Args[1])
+	son, err := sonos.NewSonos()
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+	defer son.Close()
+
+	zp, err := son.FindRoom(ctx, *room)
 	if err != nil {
 		fmt.Printf("FindRoom Error: %v\n", err)
 		return

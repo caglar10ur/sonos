@@ -53,6 +53,7 @@ type AVTransportLastChange struct {
 
 func (e *AVTransportLastChange) String() string {
 	var b strings.Builder
+
 	fmt.Fprintf(&b, "TransportState: %s\n", e.InstanceID.TransportState.Value)
 	fmt.Fprintf(&b, "CurrentPlayMode %s\n", e.InstanceID.CurrentPlayMode.Value)
 	fmt.Fprintf(&b, "NumberOfTracks: %s\n", e.InstanceID.NumberOfTracks.Value)
@@ -64,10 +65,18 @@ func (e *AVTransportLastChange) String() string {
 	if err == nil && len(metadata.Item) > 0 {
 		m := metadata.Item[0]
 
-		fmt.Fprintf(&b, "CurrentTrackMetaData>Title: %s\n", m.Title[0].Value)
-		fmt.Fprintf(&b, "CurrentTrackMetaData>Album: %s\n", m.Album[0].Value)
-		fmt.Fprintf(&b, "CurrentTrackMetaData>Creator: %s\n", m.Creator[0].Value)
-		fmt.Fprintf(&b, "CurrentTrackMetaData>AlbumArtURI: %s\n", m.AlbumArtURI[0].Value)
+		if len(m.Title) > 0 {
+			fmt.Fprintf(&b, "CurrentTrackMetaData>Title: %s\n", m.Title[0].Value)
+		}
+		if len(m.Album) > 0 {
+			fmt.Fprintf(&b, "CurrentTrackMetaData>Album: %s\n", m.Album[0].Value)
+		}
+		if len(m.Creator) > 0 {
+			fmt.Fprintf(&b, "CurrentTrackMetaData>Creator: %s\n", m.Creator[0].Value)
+		}
+		if len(m.AlbumArtURI) > 0 {
+			fmt.Fprintf(&b, "CurrentTrackMetaData>AlbumArtURI: %s\n", m.AlbumArtURI[0].Value)
+		}
 	}
 
 	fmt.Fprintf(&b, "NextTrackURI: %s\n", e.InstanceID.NextTrackURI.Value)
@@ -75,10 +84,18 @@ func (e *AVTransportLastChange) String() string {
 	if err == nil && len(metadata.Item) > 0 {
 		m := metadata.Item[0]
 
-		fmt.Fprintf(&b, "NextTrackMetaData>Title: %s\n", m.Title[0].Value)
-		fmt.Fprintf(&b, "NextTrackMetaData>Album: %s\n", m.Album[0].Value)
-		fmt.Fprintf(&b, "NextTrackMetaData>Creator: %s\n", m.Creator[0].Value)
-		fmt.Fprintf(&b, "NextTrackMetaData>AlbumArtURI: %s\n", m.AlbumArtURI[0].Value)
+		if len(m.Title) > 0 {
+			fmt.Fprintf(&b, "NextTrackMetaData>Title: %s\n", m.Title[0].Value)
+		}
+		if len(m.Album) > 0 {
+			fmt.Fprintf(&b, "NextTrackMetaData>Album: %s\n", m.Album[0].Value)
+		}
+		if len(m.Creator) > 0 {
+			fmt.Fprintf(&b, "NextTrackMetaData>Creator: %s\n", m.Creator[0].Value)
+		}
+		if len(m.AlbumArtURI) > 0 {
+			fmt.Fprintf(&b, "NextTrackMetaData>AlbumArtURI: %s\n", m.AlbumArtURI[0].Value)
+		}
 	}
 
 	return b.String()
