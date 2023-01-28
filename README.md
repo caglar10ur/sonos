@@ -1,3 +1,7 @@
+# No Maintenance Intended
+
+[![No Maintenance Intended](http://unmaintained.tech/badge.svg)](http://unmaintained.tech/)
+
 # Credits
 
 Forked from https://github.com/szatmary/sonos.
