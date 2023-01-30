@@ -169,7 +169,7 @@ func NewZonePlayer(opts ...ZonePlayerOption) (*ZonePlayer, error) {
 	}
 
 	if zp.location == nil {
-		return nil, fmt.Errorf("Empty location")
+		return nil, fmt.Errorf("empty location")
 	}
 
 	resp, err := zp.client.Get(zp.location.String())
@@ -193,13 +193,13 @@ func NewZonePlayer(opts ...ZonePlayerOption) (*ZonePlayer, error) {
 			clk.WithLocation(zp.location),
 			clk.WithClient(zp.client),
 		),
-		AVTransport: avt.NewService(
-			avt.WithLocation(zp.location),
-			avt.WithClient(zp.client),
-		),
 		AudioIn: ain.NewService(
 			ain.WithLocation(zp.location),
 			ain.WithClient(zp.client),
+		),
+		AVTransport: avt.NewService(
+			avt.WithLocation(zp.location),
+			avt.WithClient(zp.client),
 		),
 		ConnectionManager: con.NewService(
 			con.WithLocation(zp.location),
@@ -275,7 +275,7 @@ func (z *ZonePlayer) HardwareVersion() string {
 	return z.Root.Device.HardwareVersion
 }
 
-func (z *ZonePlayer) SerialNum() string {
+func (z *ZonePlayer) SerialNumber() string {
 	return z.Root.Device.SerialNum
 }
 
@@ -343,8 +343,141 @@ func (z *ZonePlayer) SetAVTransportURI(url string) error {
 	return err
 }
 
-func (zp *ZonePlayer) Event(evt interface{}) {
+func (zp *ZonePlayer) Event(evt interface{}, fn EventHandlerFunc) {
 	switch e := evt.(type) {
+	/*
+		AlarmClock
+
+			type TimeZone string
+			type TimeServer string
+			type TimeGeneration uint32
+			type AlarmListVersion string
+			type DailyIndexRefreshTime string
+			type TimeFormat string
+			type DateFormat string
+
+		AudioIn
+
+			type AudioInputName string
+			type Icon string
+			type LineInConnected bool
+			type LeftLineInLevel int32
+			type RightLineInLevel int32
+			type Playing bool
+
+		✅ AVTransport
+
+			✅ type LastChange string
+
+		ConnectionManage
+
+			type SourceProtocolInfo string
+			type SinkProtocolInfo string
+			type CurrentConnectionIDs string
+
+		ContentDirectory
+
+			type SystemUpdateID uint32
+			type ContainerUpdateIDs string
+			type ShareIndexInProgress bool
+			type ShareIndexLastError string
+			type UserRadioUpdateID string
+			type SavedQueuesUpdateID string
+			type ShareListUpdateID string
+			type RecentlyPlayedUpdateID string
+			type Browseable bool
+			type RadioFavoritesUpdateID uint32
+			type RadioLocationUpdateID uint32
+			type FavoritesUpdateID string
+			type FavoritePresetsUpdateID string
+
+		DevicePropoerties
+
+			type SettingsReplicationState string
+			type ZoneName string
+			type Icon string
+			type Configuration string
+			type Invisible bool
+			type IsZoneBridge bool
+			type AirPlayEnabled bool
+			type SupportsAudioIn bool
+			type SupportsAudioClip bool
+			type IsIdle bool
+			type MoreInfo string
+			type ChannelMapSet string
+			type HTSatChanMapSet string
+			type HTFreq uint32
+			type HTBondedZoneCommitState uint32
+			type Orientation int32
+			type LastChangedPlayState string
+			type RoomCalibrationState int32
+			type AvailableRoomCalibration string
+			type TVConfigurationError bool
+			type HdmiCecAvailable bool
+			type WirelessMode uint32
+			type WirelessLeafOnly bool
+			type HasConfiguredSSID bool
+			type ChannelFreq uint32
+			type BehindWifiExtender uint32
+			type WifiEnabled bool
+			type EthLink bool
+			type ConfigMode string
+			type SecureRegState uint32
+			type VoiceConfigState uint32
+			type MicEnabled uint32
+
+		GroupManagement
+
+			type GroupCoordinatorIsLocal bool
+			type LocalGroupUUID string
+			type VirtualLineInGroupID string
+			type ResetVolumeAfter bool
+			type VolumeAVTransportURI string
+
+		GroupRenderingControl
+
+			type GroupMute bool
+			type GroupVolume uint16
+			type GroupVolumeChangeable bool
+
+		MusicServices
+
+			type ServiceListVersion string
+
+		✅ Queue
+
+			✅ type LastChange string
+
+		✅ RenderingControl
+
+			✅ type LastChange string
+
+		SystemProperties
+
+			type CustomerID string
+			type UpdateID uint32
+			type UpdateIDX uint32
+			type VoiceUpdateID uint32
+			type ThirdPartyHash string
+
+		VirtualLinein
+
+			type CurrentTrackMetaData string
+
+		ZoneGroupTopology
+
+			✅ type AvailableSoftwareUpdate string
+			✅ type ZoneGroupState string
+			type ThirdPartyMediaServersX string
+			type AlarmRunSequence string
+			type MuseHouseholdId string
+			type ZoneGroupName string
+			type ZoneGroupID string
+			type ZonePlayerUUIDsInGroup string
+			type AreasUpdateID string
+			type SourceAreasUpdateID string
+			type NetsettingsUpdateID string
+	*/
 	case avt.LastChange:
 		var levt AVTransportLastChange
 		err := xml.Unmarshal([]byte(e), &levt)
@@ -352,9 +485,41 @@ func (zp *ZonePlayer) Event(evt interface{}) {
 			fmt.Printf("Unmarshal failure: %s", err)
 			return
 		}
-		fmt.Printf("AVTransport/LastChangeEvent: %s\n", levt.String())
+		fn(levt)
+	case ren.LastChange:
+		var levt RenderingControlLastChange
+		err := xml.Unmarshal([]byte(e), &levt)
+		if err != nil {
+			fmt.Printf("Unmarshal failure: %s", err)
+			return
+		}
+		fn(levt)
 
+	case que.LastChange:
+		var levt QueueLastChange
+		err := xml.Unmarshal([]byte(e), &levt)
+		if err != nil {
+			fmt.Printf("Unmarshal failure: %s", err)
+			return
+		}
+		fn(levt)
+	case zgt.AvailableSoftwareUpdate:
+		var levt ZoneGroupTopologyAvailableSoftwareUpdate
+		err := xml.Unmarshal([]byte(e), &levt)
+		if err != nil {
+			fmt.Printf("Unmarshal failure: %s", err)
+			return
+		}
+		fn(levt)
+	case zgt.ZoneGroupState:
+		var levt ZoneGroupTopologyZoneGroupState
+		err := xml.Unmarshal([]byte(e), &levt)
+		if err != nil {
+			fmt.Printf("Unmarshal failure: %s", err)
+			return
+		}
+		fn(levt)
 	default:
-		fmt.Printf("Unhandeld event %T: %q\n", e, e)
+		fmt.Printf("Unhandeld event %T: %s\n", e, e)
 	}
 }

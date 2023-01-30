@@ -29,7 +29,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("%s", err)
 		}
-		fmt.Printf("Trying %s\t%s\t%s (coordinator %t)\n", zp.RoomName(), zp.ModelName(), zp.SerialNum(), zp.IsCoordinator())
+		fmt.Printf("Trying %s\t%s\t%s (coordinator %t)\n", zp.RoomName(), zp.ModelName(), zp.SerialNumber(), zp.IsCoordinator())
 
 		if zp.IsCoordinator() {
 			zps = append(zps, zp)
@@ -37,7 +37,7 @@ func main() {
 	}
 
 	for _, zp := range zps {
-		fmt.Printf("Connected to %s\t%s\t%s (coordinator %t)\n", zp.RoomName(), zp.ModelName(), zp.SerialNum(), zp.IsCoordinator())
+		fmt.Printf("Connected to %s\t%s\t%s (coordinator %t)\n", zp.RoomName(), zp.ModelName(), zp.SerialNumber(), zp.IsCoordinator())
 
 		zp.GroupRenderingControl.SetGroupVolume(&grouprenderingcontrol.SetGroupVolumeArgs{
 			DesiredVolume: 10,

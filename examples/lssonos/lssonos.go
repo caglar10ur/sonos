@@ -20,7 +20,7 @@ func main() {
 	defer son.Close()
 
 	f := func(sonos *sonos.Sonos, player *sonos.ZonePlayer) {
-		fmt.Printf("%s\t%s\t%s\n", player.RoomName(), player.ModelName(), player.SerialNum())
+		fmt.Printf("%s\t%s\t%s\n", player.RoomName(), player.ModelName(), player.SerialNumber())
 	}
 
 	err = son.Search(ctx, f)
