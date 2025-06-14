@@ -8,7 +8,34 @@ import (
 	"io/ioutil"
 	"os"
 	"strings"
+	"text/template"
 )
+
+// TemplateData holds the data for generating the service code.
+type TemplateData struct {
+	ServiceName          string
+	ServiceURN           string
+	EncodingSchema       string
+	EnvelopeSchema       string
+	ControlEndpoint      string
+	EventEndpoint        string
+	StateVariables       []StateVariable
+	EventStateVariables  []StateVariable // State variables with sendEvents="yes"
+	Actions              []Action
+	ServiceLowerName     string
+	StateVariableStructs string
+	ServiceStructFields  string
+}
+
+// GetStateVariable is a helper function for the template to find a state variable by name.
+func (td *TemplateData) GetStateVariable(name string) *StateVariable {
+	for i := range td.StateVariables {
+		if td.StateVariables[i].Name == name {
+			return &td.StateVariables[i]
+		}
+	}
+	return nil
+}
 
 type AllowedValueRange struct {
 	XMLName xml.Name `xml:"allowedValueRange"`
@@ -45,30 +72,32 @@ func (s *StateVariable) GoDataType() string {
 	case "int":
 		return "int64"
 	case "r4":
-		return "flaot32"
-	case "number", "r8":
-		return "float"
-	case "float", "float64":
-		return "float"
-	// case "fixed.14.4": // TODO fixed
+		return "float32" // Corrected typo and mapping
+	case "number", "r8", "float", "float64":
+		return "float64" // Consolidated mapping
+	// case "fixed.14.4": // TODO fixed - Not yet supported
 	case "char":
 		return "rune"
 	case "string":
 		return "string"
-		// TODO data/time
+		// TODO data/time - Not yet supported
 	case "date", "dateTime", " dateTime.tz", "time", "time.tz":
-		return "string"
+		return "string" // Kept as string for now
 	case "boolean":
 		return "bool"
-		// TODO
+		// TODO - Not yet supported
 	// case "bin.base64", "bin.hex":
-	// 	return "string"
+	// 	return "string" // Kept as string for now
 	case "uri":
 		return "*url.URL"
 	case "uuid":
-		return "string"
+		return "string" // Kept as string for now
 	default:
-		return ""
+		// Add comments for any unimplemented data types
+		// For example:
+		// case "customType":
+		// return "" // Not yet supported
+		return "" // Or handle as error
 	}
 }
 
@@ -115,46 +144,85 @@ func MakeServiceApi(ServiceName, serviceControlEndpoint, serviceEventEndpoint st
 		return nil, err
 	}
 
-	state := bytes.NewBufferString("")
-
+	// Prepare data for the template.
+	stateVariableStructs := bytes.NewBufferString("")
+	serviceStructFields := bytes.NewBufferString("")
+	eventStateVariables := []StateVariable{}
 	for _, sv := range s.StateVariables {
-		if sv.SendEvents != "yes" {
-			continue
+		if sv.SendEvents == "yes" {
+			fmt.Fprintf(stateVariableStructs, "type %s %s\n", sv.Name, sv.GoDataType())
+			fmt.Fprintf(serviceStructFields, "%s *%s\n", sv.Name, sv.Name)
+			eventStateVariables = append(eventStateVariables, sv)
 		}
-		fmt.Fprintf(state, "type %s %s\n", sv.Name, sv.GoDataType())
 	}
 
-	otherstate := bytes.NewBufferString("")
-
-	for _, sv := range s.StateVariables {
-		if sv.SendEvents != "yes" {
-			continue
+	// Validate actions and their arguments.
+	for _, action := range s.Actions {
+		for _, argument := range action.Arguments {
+			sv := s.GetStateVariable(argument.RelatedStateVariable)
+			if sv == nil {
+				return nil, fmt.Errorf("state variable %s not found for action %s argument %s", argument.RelatedStateVariable, action.Name, argument.Name)
+			}
+			// Ensure GoDataType is valid
+			if sv.GoDataType() == "" {
+				return nil, fmt.Errorf("unsupported data type %s for state variable %s", sv.DataType, sv.Name)
+			}
 		}
-		fmt.Fprintf(otherstate, "%s *%s\n", sv.Name, sv.Name)
 	}
 
-	buf := bytes.NewBufferString("")
+	data := TemplateData{
+		ServiceName:          ServiceName,
+		ServiceURN:           "urn:schemas-upnp-org:service:" + ServiceName + ":1",
+		EncodingSchema:       "http://schemas.xmlsoap.org/soap/encoding/",
+		EnvelopeSchema:       "http://schemas.xmlsoap.org/soap/envelope/",
+		ControlEndpoint:      serviceControlEndpoint,
+		EventEndpoint:        serviceEventEndpoint,
+		StateVariables:       s.StateVariables, // Pass all state variables for template access
+		EventStateVariables:  eventStateVariables,
+		Actions:              s.Actions,
+		ServiceLowerName:     strings.ToLower(ServiceName),
+		StateVariableStructs: stateVariableStructs.String(),
+		ServiceStructFields:  serviceStructFields.String(),
+	}
 
-	// Header
-	w := `
+	// Create a new template and parse the template string.
+	// Add the GetStateVariable function to the template's function map.
+	tmpl, err := template.New("service").Funcs(template.FuncMap{
+		"GetStateVariable": data.GetStateVariable,
+	}).Parse(serviceTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing service template: %w", err)
+	}
+
+	// Execute the template with the data.
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return nil, fmt.Errorf("error executing service template: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
+const serviceTemplate = `
 // Code generated by makeservice. DO NOT EDIT.
 
-// Package %s is a generated %s package.
-package %s
+// Package {{.ServiceLowerName}} is a generated {{.ServiceName}} package.
+package {{.ServiceLowerName}}
 
 import (
 	"bytes"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
 )
 
 const (
-	ServiceURN     = "urn:schemas-upnp-org:service:%s:1"
-	EncodingSchema = "http://schemas.xmlsoap.org/soap/encoding/"
-	EnvelopeSchema = "http://schemas.xmlsoap.org/soap/envelope/"
+	ServiceURN     = "{{.ServiceURN}}"
+	EncodingSchema = "{{.EncodingSchema}}"
+	EnvelopeSchema = "{{.EnvelopeSchema}}"
 )
 
 type ServiceOption func(*Service)
@@ -171,28 +239,28 @@ func WithLocation(u *url.URL) ServiceOption {
 	}
 }
 
-%s
+{{.StateVariableStructs}}
 
 type Service struct {
 	controlEndpoint *url.URL
 	eventEndpoint   *url.URL
 
-	%s
+{{.ServiceStructFields}}
 
 	location        *url.URL
 	client          *http.Client
 }
 
-func NewService(opts ...ServiceOption) *Service {
+func NewService(opts ...ServiceOption) (*Service, error) {
 	s := &Service{}
 
-	c, err := url.Parse("%s")
+	c, err := url.Parse("{{.ControlEndpoint}}")
 	if nil != err {
-		panic(err)
+		return nil, fmt.Errorf("error parsing control endpoint: %w", err)
 	}
-	e, err := url.Parse("%s")
+	e, err := url.Parse("{{.EventEndpoint}}")
 	if nil != err {
-		panic(err)
+		return nil, fmt.Errorf("error parsing event endpoint: %w", err)
 	}
 
 	for _, opt := range opts {
@@ -200,16 +268,16 @@ func NewService(opts ...ServiceOption) *Service {
 	}
 
 	if s.client == nil {
-		panic("no client location")
+		return nil, errors.New("client is nil")
 	}
 	if s.location == nil {
-		panic("empty location")
+		return nil, errors.New("location is nil")
 	}
 
 	s.controlEndpoint = s.location.ResolveReference(c)
 	s.eventEndpoint = s.location.ResolveReference(e)
 
-	return s
+	return s, nil
 }
 
 func (s *Service) ControlEndpoint() *url.URL{
@@ -227,55 +295,35 @@ func (s *Service) Location() *url.URL{
 func (s *Service) Client() *http.Client {
 	return s.client
 }
-	`
-	fmt.Fprintf(buf, w,
-		strings.ToLower(ServiceName),
-		ServiceName,
-		strings.ToLower(ServiceName),
-		ServiceName,
 
-		state,
-		otherstate,
-		serviceControlEndpoint,
-		serviceEventEndpoint,
-	)
+// internal use only
+type envelope struct {
+	XMLName xml.Name ` + "`xml:\"s:Envelope\"`" + `
+	Xmlns string ` + "`xml:\"xmlns:s,attr\"`" + `
+	EncodingStyle string ` + "`xml:\"s:encodingStyle,attr\"`" + `
+	Body body ` + "`xml:\"s:Body\"`" + `
+}
 
-	// Martial structs
-	fmt.Fprintf(buf, "// internal use only\n")
-	fmt.Fprintf(buf, "type envelope struct {\n")
-	fmt.Fprintf(buf, "XMLName xml.Name `xml:\"s:Envelope\"`\n")
-	fmt.Fprintf(buf, "Xmlns string `xml:\"xmlns:s,attr\"`\n")
-	fmt.Fprintf(buf, "EncodingStyle string `xml:\"s:encodingStyle,attr\"`\n")
-	fmt.Fprintf(buf, "Body body `xml:\"s:Body\"`\n")
-	fmt.Fprintf(buf, "}\n")
+// internal use only
+type body struct {
+	XMLName xml.Name ` + "`xml:\"s:Body\"`" + `
+{{range .Actions}}	{{.Name}} *{{.Name}}Args ` + "`xml:\"u:{{.Name}},omitempty\"`" + `
+{{end}}}
 
-	fmt.Fprintf(buf, "// internal use only\n")
-	fmt.Fprintf(buf, "type body struct {\n")
-	fmt.Fprint(buf, "XMLName xml.Name `xml:\"s:Body\"`\n")
-	for _, action := range s.Actions {
-		fmt.Fprintf(buf, "%s *%sArgs `xml:\"u:%s,omitempty\"`\n", action.Name, action.Name, action.Name)
-	}
-	fmt.Fprint(buf, "}\n")
+// internal use only
+type envelopeResponse struct {
+	XMLName xml.Name ` + "`xml:\"Envelope\"`" + `
+	Xmlns string ` + "`xml:\"xmlns:s,attr\"`" + `
+	EncodingStyle string ` + "`xml:\"encodingStyle,attr\"`" + `
+	Body bodyResponse ` + "`xml:\"Body\"`" + `
+}
 
-	// Unmartial structs
-	fmt.Fprintf(buf, "// internal use only\n")
-	fmt.Fprintf(buf, "type envelopeResponse struct {\n")
-	fmt.Fprintf(buf, "XMLName xml.Name `xml:\"Envelope\"`\n")
-	fmt.Fprintf(buf, "Xmlns string `xml:\"xmlns:s,attr\"`\n")
-	fmt.Fprintf(buf, "EncodingStyle string `xml:\"encodingStyle,attr\"`\n")
-	fmt.Fprintf(buf, "Body bodyResponse `xml:\"Body\"`\n")
-	fmt.Fprintf(buf, "}\n")
+// internal use only
+type bodyResponse struct {
+	XMLName xml.Name ` + "`xml:\"Body\"`" + `
+{{range .Actions}}	{{.Name}} *{{.Name}}Response ` + "`xml:\"{{.Name}}Response,omitempty\"`" + `
+{{end}}}
 
-	fmt.Fprintf(buf, "// internal use only\n")
-	fmt.Fprintf(buf, "type bodyResponse struct {\n")
-	fmt.Fprint(buf, "XMLName xml.Name `xml:\"Body\"`\n")
-	for _, action := range s.Actions {
-		fmt.Fprintf(buf, "%s *%sResponse `xml:\"%sResponse,omitempty\"`\n", action.Name, action.Name, action.Name)
-	}
-	fmt.Fprintf(buf, "}\n")
-
-	// exec function
-	w = `
 func (s *Service) exec(actionName string, envelope *envelope) (*envelopeResponse, error) {
 	postBody, err := xml.Marshal(envelope)
 	if err != nil {
@@ -303,113 +351,104 @@ func (s *Service) exec(actionName string, envelope *envelope) (*envelopeResponse
 	}
 	return &envelopeResponse, nil
 }
-	`
-	fmt.Fprintf(buf, w)
 
-	for _, action := range s.Actions {
-		var inArguments, outArguments []Argument
-		for _, argument := range action.Arguments {
-			switch argument.Direction {
-			case "in":
-				inArguments = append(inArguments, argument)
-			case "out":
-				outArguments = append(outArguments, argument)
-			default:
-				return []byte{}, errors.New("unexpected action direction")
-			}
-		}
+{{range .Actions}}
+type {{.Name}}Args struct {
+	Xmlns string ` + "`xml:\"xmlns:u,attr\"`" + `
+{{range .Arguments}}{{if eq .Direction "in"}}
+	{{$actionName := .Name}}
+	{{$argName := .Name}}
+	{{$relatedSvName := .RelatedStateVariable}}
+	{{/* Use the custom GetStateVariable function passed to the template */}}
+	{{$sv := call $.GetStateVariable $relatedSvName}}
+	{{if not $sv}} {{/* This check is more for template safety, actual error handled in Go */}}
+	// Error: StateVariable '{{$relatedSvName}}' not found for action '{{$actionName}}' argument '{{$argName}}'
+	{{else}}
+	{{if $sv.AllowedValueRange }}// Allowed Range: {{$sv.AllowedValueRange.Minimum}} -> {{$sv.AllowedValueRange.Maximum}} step: {{$sv.AllowedValueRange.Step}}
+	{{end}}
+	{{range $sv.AllowedValues}}// Allowed Value: {{.}}
+	{{end}}
+	{{.Name}} {{$sv.GoDataType}} ` + "`xml:\"{{.Name}}\"`" + `
+	{{end}}
+{{end}}{{end}}
+}
 
-		fmt.Fprintf(buf, "type %sArgs struct {\n", action.Name)
-		fmt.Fprintf(buf, "Xmlns string `xml:\"xmlns:u,attr\"`\n")
-		for _, argument := range inArguments {
-			sv := s.GetStateVariable(argument.RelatedStateVariable)
-			if sv == nil {
-				return []byte{}, fmt.Errorf("unexpected state variable %s", argument.RelatedStateVariable)
-			}
-			if sv.AllowedValueRange != nil {
-				fmt.Fprintf(buf, "// Allowed Range: %s -> %s step: %s\n", sv.AllowedValueRange.Minimum, sv.AllowedValueRange.Maximum, sv.AllowedValueRange.Step)
-			}
-			for _, allowedValue := range sv.AllowedValues {
-				fmt.Fprintf(buf, "// Allowed Value: %s\n", allowedValue)
-			}
-			fmt.Fprintf(buf, "%s %s `xml:\"%s\"`\n", argument.Name, sv.GoDataType(), argument.Name)
-		}
-		fmt.Fprintf(buf, "}\n")
+type {{.Name}}Response struct {
+{{range .Arguments}}{{if eq .Direction "out"}}
+	{{$actionName := .Name}}
+	{{$argName := .Name}}
+	{{$relatedSvName := .RelatedStateVariable}}
+	{{/* Use the custom GetStateVariable function passed to the template */}}
+	{{$sv := call $.GetStateVariable $relatedSvName}}
+	{{if not $sv}} // Error: StateVariable '{{$relatedSvName}}' not found for action '{{$actionName}}' argument '{{$argName}}'
+	{{else}}
+	{{.Name}} {{$sv.GoDataType}} ` + "`xml:\"{{.Name}}\"`" + `
+	{{end}}
+{{end}}{{end}}
+}
 
-		fmt.Fprintf(buf, "type %sResponse struct {\n", action.Name)
-		for _, argument := range outArguments {
-			sv := s.GetStateVariable(argument.RelatedStateVariable)
-			if sv == nil {
-				return []byte{}, fmt.Errorf("unexpected state variable %s", argument.RelatedStateVariable)
-			}
-			fmt.Fprintf(buf, "%s %s\t`xml:\"%s\"`\n", argument.Name, sv.GoDataType(), argument.Name)
-		}
-		fmt.Fprintf(buf, "}\n")
+func (s *Service) {{.Name}}(args *{{.Name}}Args) (*{{.Name}}Response, error) {
+	args.Xmlns = ServiceURN
+	r, err := s.exec("{{.Name}}",
+		&envelope{
+			EncodingStyle: EncodingSchema,
+			Xmlns:         EnvelopeSchema,
+			Body:          body{ {{.Name}}: args},
+		})
+	if err != nil { return nil, err }
+	if r.Body.{{.Name}} == nil { return nil, fmt.Errorf("unexpected nil response body for {{.Name}} action") } // Propagate error
 
-		// TODO Validate, inputs
-		fmt.Fprintf(buf, "func (s *Service) %s(args *%sArgs) (*%sResponse, error) {\n", action.Name, action.Name, action.Name)
-		fmt.Fprintf(buf, "args.Xmlns = ServiceURN\n")
-		fmt.Fprintf(buf, "r, err := s.exec(\"%s\", \n&envelope{\n", action.Name)
-		fmt.Fprintf(buf, "EncodingStyle: EncodingSchema,\n")
-		fmt.Fprintf(buf, "Xmlns: EnvelopeSchema,\n")
-		fmt.Fprintf(buf, "Body: body{%s: args},\n", action.Name)
-		fmt.Fprintf(buf, "})\n")
-		fmt.Fprintf(buf, "if err != nil { return nil, err }\n")
-		fmt.Fprintf(buf, "if r.Body.%s == nil { return nil, errors.New(`unexpected response from service calling %s.%s()`) }\n",
-			action.Name, strings.ToLower(ServiceName), action.Name)
-		fmt.Fprintf(buf, "\nreturn r.Body.%s, nil }\n", action.Name)
-	}
+	return r.Body.{{.Name}}, nil
+}
+{{end}}
 
-	// Events
-	fmt.Fprintf(buf, "type UpnpEvent struct {\nXMLName xml.Name `xml:\"propertyset\"`\nXMLNameSpace string `xml:\"xmlns:e,attr\"`\nProperties []Property `xml:\"property\"`\n}\n")
-	fmt.Fprintf(buf, "type Property struct {\nXMLName xml.Name `xml:\"property\"`\n")
-	for _, sv := range s.StateVariables {
-		if sv.SendEvents != "yes" {
-			continue
-		}
-		fmt.Fprintf(buf, "%s *%s `xml:\"%s\"`\n", sv.Name, sv.Name, sv.Name)
-	}
+type UpnpEvent struct {
+	XMLName xml.Name ` + "`xml:\"propertyset\"`" + `
+	XMLNameSpace string ` + "`xml:\"xmlns:e,attr\"`" + `
+	Properties []Property ` + "`xml:\"property\"`" + `
+}
 
-	fmt.Fprint(buf, "}\n")
-	fmt.Fprintf(buf, `func (zp *Service) ParseEvent(body []byte) []interface{} {
+type Property struct {
+	XMLName xml.Name ` + "`xml:\"property\"`" + `
+{{range .EventStateVariables}}	{{.Name}} *{{.Name}} ` + "`xml:\"{{.Name}}\"`" + `
+{{end}}}
+
+func (zp *Service) ParseEvent(body []byte) ([]interface{}, error) {
 	var evt UpnpEvent
 	var events []interface{}
 	err := xml.Unmarshal(body, &evt)
 	if err != nil {
-		return events
+		return nil, fmt.Errorf("error unmarshalling event: %w", err)
 	}
 	for _, prop := range evt.Properties {
-	_ = prop
-	switch {
-`)
-	for _, sv := range s.StateVariables {
-		if sv.SendEvents != "yes" {
-			continue
-		}
-		// fmt.Fprintf(buf, "case prop.%s != nil:\n zp.EventCallback(*prop.%s)\n", sv.Name, sv.Name)
-		fmt.Fprintf(buf, "case prop.%s != nil:\n", sv.Name)
-		fmt.Fprintf(buf, "zp.%s = prop.%s\n", sv.Name, sv.Name)
-		fmt.Fprintf(buf, "events = append(events, *prop.%s)\n", sv.Name)
+		_ = prop
+		switch {
+{{range .EventStateVariables}}		case prop.{{.Name}} != nil:
+			events = append(events, *prop.{{.Name}})
+{{end}}		}
 	}
-	fmt.Fprintf(buf, "}\n}\nreturn events\n}")
-
-	return buf.Bytes(), nil
+	return events, nil
 }
+`
 
 func main() {
+	if len(os.Args) != 5 {
+		fmt.Fprintln(os.Stderr, "Usage: makeservice <ServiceName> <ServiceControlEndpoint> <ServiceEventEndpoint> <ServiceXmlFile>")
+		os.Exit(1)
+	}
 	serviceName := os.Args[1]
-	serviceEndpoint := os.Args[2]
-	controlEndpoint := os.Args[3]
+	serviceControlEndpoint := os.Args[2]
+	serviceEventEndpoint := os.Args[3]
 	serviceXml := os.Args[4]
 	body, err := ioutil.ReadFile(serviceXml)
 	if err != nil {
-		fmt.Printf("err: %v\n", err)
-		return
+		fmt.Fprintf(os.Stderr, "Error reading service XML file: %v\n", err)
+		os.Exit(1)
 	}
-	dotgo, err := MakeServiceApi(serviceName, serviceEndpoint, controlEndpoint, body)
+	dotgo, err := MakeServiceApi(serviceName, serviceControlEndpoint, serviceEventEndpoint, body)
 	if err != nil {
-		fmt.Printf("err: %v\n", err)
-		return
+		fmt.Fprintf(os.Stderr, "Error making service API: %v\n", err)
+		os.Exit(1)
 	}
 	fmt.Printf("%s\n", string(dotgo))
 }
