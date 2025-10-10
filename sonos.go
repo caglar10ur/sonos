@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -98,7 +98,7 @@ func (s *Sonos) Search(ctx context.Context, fn FoundZonePlayerFunc) error {
 				continue
 			}
 
-			location, err := url.Parse(response.Header.Get("Location"))
+			location, err := FromLocation(response.Header.Get("Location"))
 			if err != nil {
 				continue
 			}
@@ -194,7 +194,7 @@ func (s *Sonos) Subscribe(ctx context.Context, opts *SubscriptionOptions) (strin
 	}
 	defer res.Body.Close()
 
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		return "", err
 	}
@@ -227,7 +227,7 @@ func (s *Sonos) Renew(ctx context.Context, opts *SubscriptionOptions) error {
 
 	defer res.Body.Close()
 
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 
 	if err != nil {
 		return err
@@ -256,7 +256,7 @@ func (s *Sonos) Unsubscribe(ctx context.Context, opts *SubscriptionOptions) erro
 
 	defer res.Body.Close()
 
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 
 	if err != nil {
 		return err
@@ -286,7 +286,7 @@ func (s *Sonos) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	}
 	zp := p.(*ZonePlayer)
 
-	data, err := ioutil.ReadAll(request.Body)
+	data, err := io.ReadAll(request.Body)
 	if err != nil {
 		response.WriteHeader(http.StatusInternalServerError)
 		return

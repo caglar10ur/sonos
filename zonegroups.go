@@ -4,12 +4,12 @@ import "encoding/xml"
 
 type VanishedDevice struct {
 	XMLName                 xml.Name `xml:"VanishedDevice"`
-	UUID                    string   `xml:"UUID"`
-	Location                string   `xml:"Location"`
-	ZoneName                string   `xml:"ZoneName"`
+	UUID                    string   `xml:"UUID,attr"`
+	Location                string   `xml:"Location,attr"`
+	ZoneName                string   `xml:"ZoneName,attr"`
 	Icon                    string   `xml:"Icon"`
 	Configuration           string   `xml:"Configuration"`
-	SoftwareVersion         string   `xml:"SoftwareVersion"`
+	SoftwareVersion         string   `xml:"SoftwareVersion,attr"`
 	SWGen                   string   `xml:"SWGen"`
 	MinCompatibleVersion    string   `xml:"MinCompatibleVersion"`
 	LegacyCompatibleVersion string   `xml:"LegacyCompatibleVersion"`
@@ -34,9 +34,9 @@ type VanishedDevice struct {
 
 type Satellite struct {
 	XMLName                 xml.Name `xml:"Satellite"`
-	UUID                    string   `xml:"UUID"`
-	Location                string   `xml:"Location"`
-	ZoneName                string   `xml:"ZoneName"`
+	UUID                    string   `xml:"UUID,attr"`
+	Location                string   `xml:"Location,attr"`
+	ZoneName                string   `xml:"ZoneName,attr"`
 	Icon                    string   `xml:"Icon"`
 	Configuration           string   `xml:"Configuration"`
 	SoftwareVersion         string   `xml:"SoftwareVersion"`
@@ -64,12 +64,12 @@ type Satellite struct {
 
 type ZoneGroupMember struct {
 	XMLName                 xml.Name         `xml:"ZoneGroupMember"`
-	UUID                    string           `xml:"UUID"`
-	Location                string           `xml:"Location"`
-	ZoneName                string           `xml:"ZoneName"`
+	UUID                    string           `xml:"UUID,attr"`
+	Location                string           `xml:"Location,attr"`
+	ZoneName                string           `xml:"ZoneName,attr"`
 	Icon                    string           `xml:"Icon"`
 	Configuration           string           `xml:"Configuration"`
-	SoftwareVersion         string           `xml:"SoftwareVersion"`
+	SoftwareVersion         string           `xml:"SoftwareVersion,attr"`
 	SWGen                   string           `xml:"SWGen"`
 	MinCompatibleVersion    string           `xml:"MinCompatibleVersion"`
 	LegacyCompatibleVersion string           `xml:"LegacyCompatibleVersion"`
@@ -90,7 +90,7 @@ type ZoneGroupMember struct {
 	AirPlayEnabled          string           `xml:"AirPlayEnabled"`
 	IdleState               string           `xml:"IdleState"`
 	MoreInfo                string           `xml:"MoreInfo"`
-	Satellite               []Satellite      `xml:"Satellite>Satellite"`
+	Satellite               []Satellite      `xml:"Satellite"`
 	VanishedDevice          []VanishedDevice `xml:"VanishedDevices>VanishedDevice"`
 }
 

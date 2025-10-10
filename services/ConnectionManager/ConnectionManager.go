@@ -7,7 +7,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"errors"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 )
@@ -141,7 +141,7 @@ func (s *Service) exec(actionName string, envelope *envelope) (*envelopeResponse
 		return nil, err
 	}
 	defer res.Body.Close()
-	responseBody, err := ioutil.ReadAll(res.Body)
+	responseBody, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, err
 	}

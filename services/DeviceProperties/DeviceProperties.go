@@ -7,7 +7,7 @@ import (
 	"bytes"
 	"encoding/xml"
 	"errors"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 )
@@ -45,7 +45,6 @@ type IsIdle bool
 type MoreInfo string
 type ChannelMapSet string
 type HTSatChanMapSet string
-type HTFreq uint32
 type HTBondedZoneCommitState uint32
 type Orientation int32
 type LastChangedPlayState string
@@ -82,7 +81,6 @@ type Service struct {
 	MoreInfo                 *MoreInfo
 	ChannelMapSet            *ChannelMapSet
 	HTSatChanMapSet          *HTSatChanMapSet
-	HTFreq                   *HTFreq
 	HTBondedZoneCommitState  *HTBondedZoneCommitState
 	Orientation              *Orientation
 	LastChangedPlayState     *LastChangedPlayState
@@ -185,7 +183,6 @@ type body struct {
 	EnterConfigMode            *EnterConfigModeArgs            `xml:"u:EnterConfigMode,omitempty"`
 	ExitConfigMode             *ExitConfigModeArgs             `xml:"u:ExitConfigMode,omitempty"`
 	GetButtonState             *GetButtonStateArgs             `xml:"u:GetButtonState,omitempty"`
-	GetHTForwardState          *GetHTForwardStateArgs          `xml:"u:GetHTForwardState,omitempty"`
 	SetButtonLockState         *SetButtonLockStateArgs         `xml:"u:SetButtonLockState,omitempty"`
 	GetButtonLockState         *GetButtonLockStateArgs         `xml:"u:GetButtonLockState,omitempty"`
 	RoomDetectionStartChirping *RoomDetectionStartChirpingArgs `xml:"u:RoomDetectionStartChirping,omitempty"`
@@ -226,7 +223,6 @@ type bodyResponse struct {
 	EnterConfigMode            *EnterConfigModeResponse            `xml:"EnterConfigModeResponse,omitempty"`
 	ExitConfigMode             *ExitConfigModeResponse             `xml:"ExitConfigModeResponse,omitempty"`
 	GetButtonState             *GetButtonStateResponse             `xml:"GetButtonStateResponse,omitempty"`
-	GetHTForwardState          *GetHTForwardStateResponse          `xml:"GetHTForwardStateResponse,omitempty"`
 	SetButtonLockState         *SetButtonLockStateResponse         `xml:"SetButtonLockStateResponse,omitempty"`
 	GetButtonLockState         *GetButtonLockStateResponse         `xml:"GetButtonLockStateResponse,omitempty"`
 	RoomDetectionStartChirping *RoomDetectionStartChirpingResponse `xml:"RoomDetectionStartChirpingResponse,omitempty"`
@@ -249,7 +245,7 @@ func (s *Service) exec(actionName string, envelope *envelope) (*envelopeResponse
 		return nil, err
 	}
 	defer res.Body.Close()
-	responseBody, err := ioutil.ReadAll(res.Body)
+	responseBody, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -865,31 +861,6 @@ func (s *Service) GetButtonState(args *GetButtonStateArgs) (*GetButtonStateRespo
 	return r.Body.GetButtonState, nil
 }
 
-type GetHTForwardStateArgs struct {
-	Xmlns string `xml:"xmlns:u,attr"`
-}
-type GetHTForwardStateResponse struct {
-	IsHTForwardEnabled bool `xml:"IsHTForwardEnabled"`
-}
-
-func (s *Service) GetHTForwardState(args *GetHTForwardStateArgs) (*GetHTForwardStateResponse, error) {
-	args.Xmlns = ServiceURN
-	r, err := s.exec("GetHTForwardState",
-		&envelope{
-			EncodingStyle: EncodingSchema,
-			Xmlns:         EnvelopeSchema,
-			Body:          body{GetHTForwardState: args},
-		})
-	if err != nil {
-		return nil, err
-	}
-	if r.Body.GetHTForwardState == nil {
-		return nil, errors.New(`unexpected response from service calling deviceproperties.GetHTForwardState()`)
-	}
-
-	return r.Body.GetHTForwardState, nil
-}
-
 type SetButtonLockStateArgs struct {
 	Xmlns string `xml:"xmlns:u,attr"`
 	// Allowed Value: On
@@ -1016,7 +987,6 @@ type Property struct {
 	MoreInfo                 *MoreInfo                 `xml:"MoreInfo"`
 	ChannelMapSet            *ChannelMapSet            `xml:"ChannelMapSet"`
 	HTSatChanMapSet          *HTSatChanMapSet          `xml:"HTSatChanMapSet"`
-	HTFreq                   *HTFreq                   `xml:"HTFreq"`
 	HTBondedZoneCommitState  *HTBondedZoneCommitState  `xml:"HTBondedZoneCommitState"`
 	Orientation              *Orientation              `xml:"Orientation"`
 	LastChangedPlayState     *LastChangedPlayState     `xml:"LastChangedPlayState"`
@@ -1086,9 +1056,6 @@ func (zp *Service) ParseEvent(body []byte) []interface{} {
 		case prop.HTSatChanMapSet != nil:
 			zp.HTSatChanMapSet = prop.HTSatChanMapSet
 			events = append(events, *prop.HTSatChanMapSet)
-		case prop.HTFreq != nil:
-			zp.HTFreq = prop.HTFreq
-			events = append(events, *prop.HTFreq)
 		case prop.HTBondedZoneCommitState != nil:
 			zp.HTBondedZoneCommitState = prop.HTBondedZoneCommitState
 			events = append(events, *prop.HTBondedZoneCommitState)

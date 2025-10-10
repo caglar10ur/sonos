@@ -66,10 +66,6 @@
       <dataType>string</dataType>
     </stateVariable>
     <stateVariable sendEvents="yes">
-      <name>HTFreq</name>
-      <dataType>ui4</dataType>
-    </stateVariable>
-    <stateVariable sendEvents="yes">
       <name>HTBondedZoneCommitState</name>
       <dataType>ui4</dataType>
     </stateVariable>
@@ -240,10 +236,6 @@
     </stateVariable>
     <stateVariable sendEvents="no">
       <name>KeepGrouped</name>
-      <dataType>boolean</dataType>
-    </stateVariable>
-    <stateVariable sendEvents="no">
-      <name>HTForwardEnabled</name>
       <dataType>boolean</dataType>
     </stateVariable>
     <stateVariable sendEvents="no">
@@ -626,16 +618,6 @@
           <name>State</name>
           <direction>out</direction>
           <relatedStateVariable>A_ARG_TYPE_ButtonState</relatedStateVariable>
-        </argument>
-      </argumentList>
-    </action>
-    <action>
-      <name>GetHTForwardState</name>
-      <argumentList>
-        <argument>
-          <name>IsHTForwardEnabled</name>
-          <direction>out</direction>
-          <relatedStateVariable>HTForwardEnabled</relatedStateVariable>
         </argument>
       </argumentList>
     </action>

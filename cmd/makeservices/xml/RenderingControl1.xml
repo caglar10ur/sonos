@@ -154,6 +154,14 @@
       <dataType>string</dataType>
     </stateVariable>
     <stateVariable sendEvents="no">
+      <name>SupportsMaxDialogLevel</name>
+      <dataType>boolean</dataType>
+    </stateVariable>
+    <stateVariable sendEvents="no">
+      <name>SpeechEnhanceEnabled</name>
+      <dataType>boolean</dataType>
+    </stateVariable>
+    <stateVariable sendEvents="no">
       <name>SpeakerSize</name>
       <dataType>ui4</dataType>
     </stateVariable>

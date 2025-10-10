@@ -8,6 +8,9 @@ import (
 	"net/url"
 	"time"
 
+	"strings"
+
+	"github.com/caglar10ur/sonos/didl"
 	avt "github.com/caglar10ur/sonos/services/AVTransport"
 	clk "github.com/caglar10ur/sonos/services/AlarmClock"
 	ain "github.com/caglar10ur/sonos/services/AudioIn"
@@ -122,6 +125,10 @@ func WithLocation(u *url.URL) ZonePlayerOption {
 
 func FromEndpoint(endpoint string) (*url.URL, error) {
 	return url.Parse(fmt.Sprintf("http://%s:1400/xml/device_description.xml", endpoint))
+}
+
+func FromLocation(location string) (*url.URL, error) {
+	return url.Parse(location)
 }
 
 type ZonePlayer struct {
@@ -275,8 +282,24 @@ func (z *ZonePlayer) HardwareVersion() string {
 	return z.Root.Device.HardwareVersion
 }
 
+func (z *ZonePlayer) SoftwareVersion() string {
+	return z.Root.Device.SoftwareVersion
+}
+
 func (z *ZonePlayer) SerialNumber() string {
 	return z.Root.Device.SerialNum
+}
+
+func (z *ZonePlayer) MACAddress() string {
+	return z.Root.Device.MACAddress
+}
+
+func (z *ZonePlayer) ModelDescription() string {
+	return z.Root.Device.ModelDescription
+}
+
+func (z *ZonePlayer) UUID() string {
+	return strings.Split(z.Root.Device.UDN, ":")[1]
 }
 
 func (z *ZonePlayer) IsCoordinator() bool {
@@ -316,9 +339,29 @@ func (z *ZonePlayer) GetVolume() (int, error) {
 	return int(res.CurrentVolume), err
 }
 
+func (z *ZonePlayer) GetGroupVolume() (int, error) {
+	res, err := z.GroupRenderingControl.GetGroupVolume(&rcg.GetGroupVolumeArgs{InstanceID: 0})
+	if err != nil {
+		return 0, err
+	}
+
+	return int(res.CurrentVolume), err
+}
+
 func (z *ZonePlayer) SetVolume(desiredVolume int) error {
 	_, err := z.RenderingControl.SetVolume(&ren.SetVolumeArgs{
 		Channel:       "Master",
+		DesiredVolume: uint16(desiredVolume)})
+	return err
+}
+
+func (z *ZonePlayer) SetGroupVolume(desiredVolume int) error {
+	_, err := z.GroupRenderingControl.SnapshotGroupVolume(&rcg.SnapshotGroupVolumeArgs{})
+	if err != nil {
+		return err
+	}
+	_, err = z.GroupRenderingControl.SetGroupVolume(&rcg.SetGroupVolumeArgs{
+		InstanceID:    0,
 		DesiredVolume: uint16(desiredVolume),
 	})
 	return err
@@ -333,6 +376,100 @@ func (z *ZonePlayer) Play() error {
 
 func (z *ZonePlayer) Stop() error {
 	_, err := z.AVTransport.Stop(&avt.StopArgs{})
+	return err
+}
+
+func (z *ZonePlayer) Pause() error {
+	_, err := z.AVTransport.Pause(&avt.PauseArgs{InstanceID: 0})
+	return err
+}
+
+func (z *ZonePlayer) Next() error {
+	_, err := z.AVTransport.Next(&avt.NextArgs{InstanceID: 0})
+	return err
+}
+
+func (z *ZonePlayer) Previous() error {
+	_, err := z.AVTransport.Previous(&avt.PreviousArgs{InstanceID: 0})
+	return err
+}
+
+func (z *ZonePlayer) GetPositionInfo() (*avt.GetPositionInfoResponse, error) {
+	return z.AVTransport.GetPositionInfo(&avt.GetPositionInfoArgs{InstanceID: 0})
+}
+
+func (z *ZonePlayer) GetZoneGroupAttributes() (*zgt.GetZoneGroupAttributesResponse, error) {
+	return z.ZoneGroupTopology.GetZoneGroupAttributes(&zgt.GetZoneGroupAttributesArgs{})
+}
+
+func (z *ZonePlayer) ListQueue() ([]didl.Item, error) {
+	browseRes, err := z.Queue.Browse(&que.BrowseArgs{QueueID: 0, StartingIndex: 0, RequestedCount: 100})
+	if err != nil {
+		return nil, err
+	}
+
+	var lite didl.Lite
+	if err := xml.Unmarshal([]byte(browseRes.Result), &lite); err != nil {
+		return nil, err
+	}
+
+	return lite.Item, nil
+}
+
+func (z *ZonePlayer) Mute() error {
+	_, err := z.RenderingControl.SetMute(&ren.SetMuteArgs{InstanceID: 0, Channel: "Master", DesiredMute: true})
+	return err
+}
+
+func (z *ZonePlayer) Unmute() error {
+	_, err := z.RenderingControl.SetMute(&ren.SetMuteArgs{InstanceID: 0, Channel: "Master", DesiredMute: false})
+	return err
+}
+
+func (z *ZonePlayer) IsMuted() (bool, error) {
+	res, err := z.RenderingControl.GetMute(&ren.GetMuteArgs{InstanceID: 0, Channel: "Master"})
+	if err != nil {
+		return false, err
+	}
+	return res.CurrentMute, nil
+}
+
+func (z *ZonePlayer) GetAudioInputAttributes() (*ain.GetAudioInputAttributesResponse, error) {
+	return z.AudioIn.GetAudioInputAttributes(&ain.GetAudioInputAttributesArgs{})
+}
+
+func (z *ZonePlayer) SetAudioInputAttributes(desiredName, desiredIcon string) error {
+	_, err := z.AudioIn.SetAudioInputAttributes(&ain.SetAudioInputAttributesArgs{DesiredName: desiredName, DesiredIcon: desiredIcon})
+	return err
+}
+
+func (z *ZonePlayer) GetLineInLevel() (*ain.GetLineInLevelResponse, error) {
+	return z.AudioIn.GetLineInLevel(&ain.GetLineInLevelArgs{})
+}
+
+func (z *ZonePlayer) SetLineInLevel(desiredLeftLineInLevel, desiredRightLineInLevel int32) error {
+	_, err := z.AudioIn.SetLineInLevel(&ain.SetLineInLevelArgs{DesiredLeftLineInLevel: desiredLeftLineInLevel, DesiredRightLineInLevel: desiredRightLineInLevel})
+	return err
+}
+
+func (z *ZonePlayer) SelectAudio(objectID string) error {
+	_, err := z.AudioIn.SelectAudio(&ain.SelectAudioArgs{ObjectID: objectID})
+	return err
+}
+
+func (z *ZonePlayer) GetZoneInfo() (*dev.GetZoneInfoResponse, error) {
+	return z.DeviceProperties.GetZoneInfo(&dev.GetZoneInfoArgs{})
+}
+
+func (z *ZonePlayer) SwitchToLineIn() error {
+	uuid := z.UUID()
+	_, err := z.AVTransport.SetAVTransportURI(&avt.SetAVTransportURIArgs{InstanceID: 0, CurrentURI: fmt.Sprintf("x-rincon-stream:%s", uuid), CurrentURIMetaData: ""})
+	return err
+}
+
+func (z *ZonePlayer) SwitchToQueue() error {
+	uuid := z.UUID()
+	_, err := z.AVTransport.SetAVTransportURI(&avt.SetAVTransportURIArgs{InstanceID: 0, CurrentURI: fmt.Sprintf("x-rincon-queue:%s#0", uuid), CurrentURIMetaData: ""})
 	return err
 }
 
@@ -406,7 +543,6 @@ func (zp *ZonePlayer) Event(evt interface{}, fn EventHandlerFunc) {
 			type MoreInfo string
 			type ChannelMapSet string
 			type HTSatChanMapSet string
-			type HTFreq uint32
 			type HTBondedZoneCommitState uint32
 			type Orientation int32
 			type LastChangedPlayState string
