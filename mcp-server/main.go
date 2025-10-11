@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -15,7 +17,18 @@ import (
 	avt "github.com/caglar10ur/sonos/services/AVTransport"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/zmb3/spotify/v2"
+	spotifyauth "github.com/zmb3/spotify/v2/auth"
+	"golang.org/x/oauth2/clientcredentials"
 )
+
+type SpotifyTrackInfo struct {
+	URI      string `json:"uri"`
+	Title    string `json:"title"`
+	Artist   string `json:"artist"`
+	Album    string `json:"album"`
+	AlbumArt string `json:"album_art_url"`
+}
 
 const (
 	defaultTimeout = 10 * time.Second
@@ -298,6 +311,26 @@ func main() {
 	)
 	s.AddTool(getMediaInfoTool, getMediaInfoHandler)
 
+	searchSpotifyTool := mcp.NewTool(
+		"search_spotify",
+		mcp.WithDescription("Search for a track, album, or artist on Spotify and returns its URI"),
+		mcp.WithString("query", mcp.Required(),
+			mcp.Description("The search query")),
+		mcp.WithString("search_type", mcp.Required(),
+			mcp.Description("The type of search to perform (track, album, playlist, or artist)")),
+	)
+	s.AddTool(searchSpotifyTool, searchSpotifyHandler)
+
+	playSpotifyURITool := mcp.NewTool(
+		"play_spotify_uri",
+		mcp.WithDescription("Play a Spotify URI on a Sonos device"),
+		mcp.WithString("room_name", mcp.Required(),
+			mcp.Description("The name of the room to play the Spotify URI in")),
+		mcp.WithString("track_info_json", mcp.Required(),
+			mcp.Description("JSON string containing Spotify track, album or playlist information (URI, title, artist, album, album art URL)")),
+	)
+	s.AddTool(playSpotifyURITool, playSpotifyURIHandler)
+
 	// Choose transport based on environment
 	transport := os.Getenv("MCP_TRANSPORT")
 	port := os.Getenv("PORT")
@@ -343,16 +376,7 @@ func getMediaInfoHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp
 		return mcp.NewToolResultError(fmt.Sprintf("failed to get media info for room %s: %s", roomName, err)), nil
 	}
 
-	return mcp.NewToolResultText(
-		fmt.Sprintf(
-			"CurrentURI: %s, CurrentURIMetadata: %#v, NextURI: %s, CurrentURIMetadata: %#v, NrTracks: %d,  PlayMedium: %s, MediaDuration: %s",
-			mediaInfo.CurrentURI,
-			mediaInfo.CurrentURIMetaData,
-			mediaInfo.NextURI,
-			mediaInfo.NextURIMetaData,
-			mediaInfo.NrTracks,
-			mediaInfo.PlayMedium,
-			mediaInfo.MediaDuration)), nil
+	return mcp.NewToolResultText(fmt.Sprintf("mediaInfo: %#v", mediaInfo)), nil
 }
 
 func addGroupMemberHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -1096,4 +1120,210 @@ func setGroupVolumeHandler(ctx context.Context, request mcp.CallToolRequest) (*m
 	}
 
 	return mcp.NewToolResultText(fmt.Sprintf("Group volume in %s set to %d", roomName, volume)), nil
+}
+
+func searchSpotifyHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	query, err := request.RequireString("query")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	searchType, err := request.RequireString("search_type")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer cancel()
+
+	config := &clientcredentials.Config{
+		ClientID:     os.Getenv("SPOTIFY_CLIENT_ID"),
+		ClientSecret: os.Getenv("SPOTIFY_CLIENT_SECRET"),
+		TokenURL:     spotifyauth.TokenURL,
+	}
+	token, err := config.Token(ctx)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("couldn't get token: %v", err)), nil
+	}
+
+	httpClient := spotifyauth.New().Client(ctx, token)
+	client := spotify.New(httpClient)
+
+	var searchRequestType spotify.SearchType
+	switch searchType {
+	case "track":
+		searchRequestType = spotify.SearchTypeTrack
+	case "album":
+		searchRequestType = spotify.SearchTypeAlbum
+	case "artist":
+		searchRequestType = spotify.SearchTypeArtist
+	case "playlist":
+		searchRequestType = spotify.SearchTypePlaylist
+	default:
+		return mcp.NewToolResultError("invalid search type"), nil
+	}
+
+	results, err := client.Search(ctx, query, searchRequestType)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("error searching spotify: %s", err)), nil
+	}
+
+	var result string
+
+	switch searchType {
+	case "track":
+		if results.Tracks != nil && len(results.Tracks.Tracks) > 0 {
+			track := results.Tracks.Tracks[0]
+			var albumArtURL string
+			if len(track.Album.Images) > 0 {
+				albumArtURL = track.Album.Images[0].URL
+			}
+			trackInfo := SpotifyTrackInfo{
+				URI:      string(track.URI),
+				Title:    track.Name,
+				Artist:   track.Artists[0].Name,
+				Album:    track.Album.Name,
+				AlbumArt: albumArtURL,
+			}
+			jsonBytes, err := json.Marshal(trackInfo)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("failed to marshal track info: %v", err)), nil
+			}
+			result = string(jsonBytes)
+		}
+	case "album":
+		if results.Albums != nil && len(results.Albums.Albums) > 0 {
+			result = string(results.Albums.Albums[0].URI)
+		}
+	case "artist":
+		if results.Artists != nil && len(results.Artists.Artists) > 0 {
+			result = string(results.Artists.Artists[0].URI)
+		}
+	case "playlist":
+		if results.Playlists != nil && len(results.Playlists.Playlists) > 0 {
+			result = string(results.Playlists.Playlists[0].URI)
+		}
+	}
+
+	if result == "" {
+		return mcp.NewToolResultError("no results found"), nil
+	}
+
+	return mcp.NewToolResultText(result), nil
+}
+
+// DIDLLite represents the root DIDL-Lite element
+type DIDLLite struct {
+	XMLName xml.Name  `xml:"DIDL-Lite"`
+	Dc      string    `xml:"xmlns:dc,attr"`
+	Upnp    string    `xml:"xmlns:upnp,attr"`
+	R       string    `xml:"xmlns:r,attr"`
+	Xmlns   string    `xml:"xmlns,attr"`
+	Item    didl.Item `xml:"item"`
+}
+
+func playSpotifyURIHandler(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	roomName, err := request.RequireString("room_name")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	trackInfoJSON, err := request.RequireString("track_info_json")
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	var trackInfo SpotifyTrackInfo
+	err = json.Unmarshal([]byte(trackInfoJSON), &trackInfo)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to unmarshal track info: %v", err)), nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
+	defer cancel()
+
+	zp, err := cachedRoom(ctx, roomName)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("room not found: %s", err)), nil
+	}
+
+	// Parse Spotify URI
+	parts := strings.Split(trackInfo.URI, ":")
+	if len(parts) != 3 || parts[0] != "spotify" {
+		return mcp.NewToolResultError("invalid Spotify URI format"), nil
+	}
+
+	typeStr := parts[1]
+	id := parts[2]
+
+	var resURI string
+	var itemid string
+
+	switch typeStr {
+	case "track":
+		resURI = fmt.Sprintf("x-sonos-spotify:spotify%%3atrack%%3a%s?sid=12&flags=0&sn=2", id)
+		itemid = fmt.Sprintf("00032020%s", url.QueryEscape(trackInfo.URI))
+	case "album":
+		resURI = fmt.Sprintf("x-rincon-cpcontainer:1004206cspotify%%3aalbum%%3a%s?sid=12&flags=0&sn=2", id)
+		itemid = fmt.Sprintf("1004206cspotify%3aalbum%3a%s", id)
+	case "artist":
+		// TODO
+		resURI = fmt.Sprintf("x-rincon-cpcontainer:1005206cspotify%%3aartist%%3a%s?sid=12&flags=0&sn=2", id)
+	case "playlist":
+		// TODO
+		resURI = fmt.Sprintf("x-rincon-cpcontainer:1006206cspotify:playlist:id?sid=12&flags=0&sn=2", id)
+		//magic = "1006206"
+	default:
+		return mcp.NewToolResultError(fmt.Sprintf("unsupported Spotify URI type: %s", typeStr)), nil
+	}
+
+	// Populate the structs with data
+	didl := DIDLLite{
+		Dc:    "http://purl.org/dc/elements/1.1/",
+		Upnp:  "urn:schemas-upnp-org:metadata-1-0/upnp/",
+		R:     "urn:schemas-rinconnetworks-com:metadata-1-0/",
+		Xmlns: "urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/",
+		Item: didl.Item{
+			ID:          itemid,
+			Restricted:  true,
+			Class:       []didl.Class{{Value: "object.item.audioItem.musicTrack"}},
+			Title:       []didl.Title{{Value: trackInfo.Title}},
+			Creator:     []didl.Creator{{Value: trackInfo.Artist}},
+			Album:       []didl.Album{{Value: trackInfo.Album}},
+			AlbumArtURI: []didl.AlbumArtURI{{Value: trackInfo.AlbumArt}},
+			AlbumArtist: []didl.AlbumArtist{{Value: trackInfo.Artist}},
+			Desc: []didl.Desc{{
+				ID:        "cdudn",
+				NameSpace: "urn:schemas-rinconnetworks-com:metadata-1-0/",
+				Value:     "SA_RINCON3079_X_#Svc3079-0-Token",
+			}},
+		},
+	}
+
+	// Marshal the struct to XML
+	output, err := xml.Marshal(didl)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to marshall xml Spotify URI type: %s", typeStr)), nil
+	}
+
+	if false {
+		return mcp.NewToolResultError(fmt.Sprintf("this is what I generated: %s", string(output))), nil
+	}
+	_, err = zp.AVTransport.AddURIToQueue(&avt.AddURIToQueueArgs{
+		InstanceID:                      0,
+		EnqueuedURI:                     resURI,
+		EnqueuedURIMetaData:             string(output),
+		DesiredFirstTrackNumberEnqueued: 1,
+		EnqueueAsNext:                   true,
+	})
+
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to add Spotify URI %s to queue for room %s: %s", resURI, roomName, err)), nil
+	}
+
+	err = zp.Play()
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("failed to play Spotify URI %s in room %s: %s", resURI, roomName, err)), nil
+	}
+	return mcp.NewToolResultText(fmt.Sprintf("Playing Spotify URI %s in %s", trackInfo.URI, roomName)), nil
 }

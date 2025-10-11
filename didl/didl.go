@@ -29,9 +29,7 @@
 // SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //
 
-//
 // A minimal implementation of the Digital Item Declaration Language (DIDL).
-//
 package didl
 
 import (
@@ -44,9 +42,9 @@ type didlValidated struct {
 	Extra []xml.Name `xml:",any"`
 }
 
-func (this *didlValidated) Validate() {
-	if 0 < len(this.Extra) {
-		for _, extra := range this.Extra {
+func (d *didlValidated) Validate() {
+	if 0 < len(d.Extra) {
+		for _, extra := range d.Extra {
 			log.Printf("Missing <Container><%s/>", extra.Local)
 		}
 	}
@@ -54,70 +52,81 @@ func (this *didlValidated) Validate() {
 
 type Album struct {
 	XMLName xml.Name `json:"-"`
-	Value   string `xml:",chardata"`
+	Value   string   `xml:",chardata"`
 }
 
 type AlbumArtURI struct {
 	XMLName xml.Name `json:"-"`
-	Value   string `xml:",chardata"`
+	Value   string   `xml:",chardata"`
 }
 
 type Class struct {
 	XMLName xml.Name `json:"-"`
-	Value   string `xml:",chardata"`
+	Value   string   `xml:",chardata"`
 }
 
 type Creator struct {
 	XMLName xml.Name `json:"-"`
-	Value   string `xml:",chardata"`
+	Value   string   `xml:",chardata"`
 }
 
-type OriginalTrackNumber struct {
+type AlbumArtist struct {
 	XMLName xml.Name `json:"-"`
-	Value   string `xml:",chardata"`
+	Value   string   `xml:",chardata"`
 }
 
 type Res struct {
 	XMLName      xml.Name `json:"-"`
-	ProtocolInfo string `xml:"protocolInfo,attr"`
-	Duration     string `xml:"duration,attr"`
-	Value        string `xml:",chardata"`
+	ProtocolInfo string   `xml:"protocolInfo,attr"`
+	Duration     string   `xml:"duration,attr"`
+	Value        string   `xml:",chardata"`
 }
 type Title struct {
 	XMLName xml.Name `json:"-"`
-	Value   string `xml:",chardata"`
+	Value   string   `xml:",chardata"`
 }
 
 type Container struct {
-	XMLName     xml.Name `json:"-"`
+	XMLName     xml.Name      `json:"-"`
 	ID          string        `xml:"id,attr"`
 	ParentID    string        `xml:"parentID,attr"`
 	Restricted  bool          `xml:"restricted,attr"`
 	Res         []Res         `xml:"res"`
-	Title       []Title       `xml:"title"`
-	Class       []Class       `xml:"class"`
-	AlbumArtURI []AlbumArtURI `xml:"albumArtURI"`
-	Creator     []Creator     `xml:"creator"`
+	Title       []Title       `xml:"http://purl.org/dc/elements/1.1/ title"`
+	Class       []Class       `xml:"urn:schemas-upnp-org:metadata-1-0/upnp/ class"`
+	AlbumArtURI []AlbumArtURI `xml:"urn:schemas-upnp-org:metadata-1-0/upnp/ albumArtURI"`
+	Creator     []Creator     `xml:"http://purl.org/dc/elements/1.1/ creator"`
+	Album       []Album       `xml:"urn:schemas-upnp-org:metadata-1-0/upnp/ album"`
+	AlbumArtist []AlbumArtist `xml:"urn:schemas-rinconnetworks-com:metadata-1-0/ albumArtist"`
+	Desc        []Desc        `xml:"desc"`
 	didlValidated
 }
 
+type Desc struct {
+	XMLName   xml.Name `json:"-"`
+	ID        string   `xml:"id,attr"`
+	NameSpace string   `xml:"nameSpace,attr"`
+	Value     string   `xml:",chardata"`
+}
+
 type Item struct {
-	XMLName             xml.Name `json:"-"`
-	ID                  string                `xml:"id,attr"`
-	ParentID            string                `xml:"parentID,attr"`
-	Restricted          bool                  `xml:"restricted,attr"`
-	Res                 []Res                 `xml:"res"`
-	Title               []Title               `xml:"title"`
-	Class               []Class               `xml:"class"`
-	AlbumArtURI         []AlbumArtURI         `xml:"albumArtURI"`
-	Creator             []Creator             `xml:"creator"`
-	Album               []Album               `xml:"album"`
-	OriginalTrackNumber []OriginalTrackNumber `xml:"originalTrackNumber"`
+	XMLName     xml.Name      `json:"-"`
+	ID          string        `xml:"id,attr"`
+	ParentID    string        `xml:"parentID,attr"`
+	Restricted  bool          `xml:"restricted,attr"`
+	Res         []Res         `xml:"res"`
+	Title       []Title       `xml:"http://purl.org/dc/elements/1.1/ title"`
+	Class       []Class       `xml:"urn:schemas-upnp-org:metadata-1-0/upnp/ class"`
+	AlbumArtURI []AlbumArtURI `xml:"urn:schemas-upnp-org:metadata-1-0/upnp/ albumArtURI"`
+	Creator     []Creator     `xml:"http://purl.org/dc/elements/1.1/ creator"`
+	Album       []Album       `xml:"urn:schemas-upnp-org:metadata-1-0/upnp/ album"`
+	AlbumArtist []AlbumArtist `xml:"urn:schemas-rinconnetworks-com:metadata-1-0/ albumArtist"`
+	Desc        []Desc        `xml:"desc"`
 	didlValidated
 }
 
 type Lite struct {
-	XMLName   xml.Name `json:"-"`
+	XMLName   xml.Name    `json:"-"`
 	Container []Container `xml:"container"`
 	Item      []Item      `xml:"item"`
 	didlValidated
