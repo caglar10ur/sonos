@@ -6,31 +6,22 @@ declare -a arr=("VirtualLineIn" "GroupRenderingControl" "Queue" "AVTransport" "C
 
 for i in "${arr[@]}"
 do
-    go run ${DIR}/makeservice.go ${i} /MediaRenderer/${i}/Control /MediaRenderer/${i}/Event ${DIR}/xml/${i}1.xml >${i}.go
-    goimports -w ${i}.go
-
-    mkdir -p ${DIR}/../../services/${i}/
-    mv ${i}.go ${DIR}/../../services/${i}/
+    go run ${DIR}/makeservice.go -control "/MediaRenderer/${i}/Control" -event "/MediaRenderer/${i}/Event" -xml ${DIR}/xml/${i}1.xml -outputDir services
+    goimports -w services/${i}/${i}.go
 done
 
 declare -a arr=("ContentDirectory" "ConnectionManager")
 
 for i in "${arr[@]}"
 do
-    go run ${DIR}/makeservice.go ${i} /MediaServer/${i}/Control /MediaServer/${i}/Event ${DIR}/xml/${i}1.xml >${i}.go
-    goimports -w ${i}.go
-
-    mkdir -p ${DIR}/../../services/${i}/
-    mv ${i}.go ${DIR}/../../services/${i}/
+    go run ${DIR}/makeservice.go -control "/MediaServer/${i}/Control" -event "/MediaServer/${i}/Event" -xml ${DIR}/xml/${i}1.xml -outputDir services
+    goimports -w services/${i}/${i}.go
 done
 
 declare -a arr=("AudioIn" "AlarmClock" "MusicServices" "DeviceProperties" "SystemProperties" "ZoneGroupTopology" "GroupManagement" "QPlay")
 
 for i in "${arr[@]}"
 do
-    go run ${DIR}/makeservice.go ${i} /${i}/Control /${i}/Event ${DIR}/xml/${i}1.xml >${i}.go
-    goimports -w ${i}.go
-
-    mkdir -p ${DIR}/../../services/${i}/
-    mv ${i}.go ${DIR}/../../services/${i}/
+    go run ${DIR}/makeservice.go -control "/${i}/Control" -event "/${i}/Event" -xml ${DIR}/xml/${i}1.xml -outputDir services
+    goimports -w services/${i}/${i}.go
 done
