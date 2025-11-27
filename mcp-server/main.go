@@ -2,23 +2,30 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/caglar10ur/sonos/mcp-server/handlers"
 	"github.com/caglar10ur/sonos/mcp-server/sonoscontrol"
 	"github.com/caglar10ur/sonos/mcp-server/spotify"
-	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+func init() {
+	flag.Parse()
+}
+
 func main() {
+	transport := flag.String("transport", "", "Transport type for MCP server (http or stdio)")
+	port := flag.String("port", "8888", "Port for the HTTP server")
+
 	// Create a new MCP server
-	s := server.NewMCPServer(
-		"Sonos",
-		"1.1.0",
-		server.WithToolCapabilities(false),
-	)
+	s := mcp.NewServer(&mcp.Implementation{Name: "Sonos", Version: "1.1.0"}, nil)
 
 	sonosController, err := sonoscontrol.NewSonosController()
 	if err != nil {
@@ -32,290 +39,199 @@ func main() {
 
 	h := handlers.NewHandlers(sonosController, spotifyClient)
 
-	listTool := mcp.NewTool(
-		"list_sonos_devices",
-		mcp.WithDescription("List all Sonos devices on the network"),
-	)
-	s.AddTool(listTool, h.ListSonosDevicesHandler)
+	mcp.AddTool(s,
+		&mcp.Tool{
+			Name:        "list_sonos_devices",
+			Description: "List all Sonos devices on the network",
+		}, h.ListSonosDevicesHandler)
 
-	nowPlayingTool := mcp.NewTool(
-		"get_now_playing",
-		mcp.WithDescription("Get the currently playing track on a Sonos device"),
-		mcp.WithString("room_name", mcp.Required(),
-			mcp.Description("The name of the room to get media info from")),
-	)
-	s.AddTool(nowPlayingTool, h.GetNowPlayingHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "get_now_playing",
+		Description: "Get the currently playing track on a Sonos device",
+	}, h.GetNowPlayingHandler)
 
-	playTool := mcp.NewTool(
-		"play",
-		mcp.WithDescription("Start playback on a Sonos device"),
-		mcp.WithString("room_name", mcp.Required(),
-			mcp.Description("The name of the room to start playback in")),
-	)
-	s.AddTool(playTool, h.PlayHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "play",
+		Description: "Start playback on a Sonos device",
+	}, h.PlayHandler)
 
-	stopTool := mcp.NewTool(
-		"stop",
-		mcp.WithDescription("Stop playback on a Sonos device"),
-		mcp.WithString("room_name", mcp.Required(),
-			mcp.Description("The name of the room to stop playback in")),
-	)
-	s.AddTool(stopTool, h.StopHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "stop",
+		Description: "Stop playback on a Sonos device",
+	}, h.StopHandler)
 
-	pauseTool := mcp.NewTool(
-		"pause",
-		mcp.WithDescription("Pause playback on a Sonos device"),
-		mcp.WithString("room_name", mcp.Required(),
-			mcp.Description("The name of the room to pause playback in")),
-	)
-	s.AddTool(pauseTool, h.PauseHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "pause",
+		Description: "Pause playback on a Sonos device",
+	}, h.PauseHandler)
 
-	nextTool := mcp.NewTool(
-		"next",
-		mcp.WithDescription("Play the next track on a Sonos device"),
-		mcp.WithString("room_name", mcp.Required(),
-			mcp.Description("The name of the room to play the next track in")),
-	)
-	s.AddTool(nextTool, h.NextHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "next",
+		Description: "Play the next track on a Sonos device",
+	}, h.NextHandler)
 
-	previousTool := mcp.NewTool(
-		"previous",
-		mcp.WithDescription("Play the previous track on a Sonos device"),
-		mcp.WithString("room_name", mcp.Required(),
-			mcp.Description("The name of the room to play the previous track in")),
-	)
-	s.AddTool(previousTool, h.PreviousHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "previous",
+		Description: "Play the previous track on a Sonos device",
+	}, h.PreviousHandler)
 
-	getVolumeTool := mcp.NewTool(
-		"get_volume",
-		mcp.WithDescription("Get the current volume of a Sonos device"),
-		mcp.WithString("room_name", mcp.Required(),
-			mcp.Description("The name of the room to get the volume from")),
-	)
-	s.AddTool(getVolumeTool, h.GetVolumeHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "get_volume",
+		Description: "Get the current volume of a Sonos device",
+	}, h.GetVolumeHandler)
 
-	setVolumeTool := mcp.NewTool(
-		"set_volume",
-		mcp.WithDescription("Set the volume of a Sonos device"),
-		mcp.WithString("room_name", mcp.Required(),
-			mcp.Description("The name of the room to set the volume for")),
-		mcp.WithNumber("volume", mcp.Required(),
-			mcp.Description("The volume level to set (0-100)")),
-	)
-	s.AddTool(setVolumeTool, h.SetVolumeHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "set_volume",
+		Description: "Set the volume of a Sonos device",
+	}, h.SetVolumeHandler)
 
-	listQueueTool := mcp.NewTool(
-		"list_queue",
-		mcp.WithDescription("List the songs in the device's queue"),
-		mcp.WithString("room_name", mcp.Required(),
-			mcp.Description("The name of the room to list the queue for")),
-	)
-	s.AddTool(listQueueTool, h.ListQueueHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "list_queue",
+		Description: "List the songs in the device's queue",
+	}, h.ListQueueHandler)
 
-	getPositionInfoTool := mcp.NewTool(
-		"get_position_info",
-		mcp.WithDescription("Get the position information of the currently playing song"),
-		mcp.WithString("room_name", mcp.Required(),
-			mcp.Description("The name of the room to get position info from")),
-	)
-	s.AddTool(getPositionInfoTool, h.GetPositionInfoHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "get_position_info",
+		Description: "Get the position information of the currently playing song",
+	}, h.GetPositionInfoHandler)
 
-	muteTool := mcp.NewTool(
-		"mute",
-		mcp.WithDescription("Mute a Sonos device"),
-		mcp.WithString("room_name", mcp.Required(),
-			mcp.Description("The name of the room to mute")),
-	)
-	s.AddTool(muteTool, h.MuteHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "mute",
+		Description: "Mute a Sonos device",
+	}, h.MuteHandler)
 
-	unmuteTool := mcp.NewTool(
-		"unmute",
-		mcp.WithDescription("Unmute a Sonos device"),
-		mcp.WithString("room_name", mcp.Required(),
-			mcp.Description("The name of the room to unmute")),
-	)
-	s.AddTool(unmuteTool, h.UnmuteHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "unmute",
+		Description: "Unmute a Sonos device",
+	}, h.UnmuteHandler)
 
-	getMuteStatusTool := mcp.NewTool(
-		"get_mute_status",
-		mcp.WithDescription("Get the mute status of a Sonos device"),
-		mcp.WithString("room_name", mcp.Required(),
-			mcp.Description("The name of the room to get the mute status from")),
-	)
-	s.AddTool(getMuteStatusTool, h.GetMuteStatusHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "get_mute_status",
+		Description: "Get the mute status of a Sonos device",
+	}, h.GetMuteStatusHandler)
 
-	getAudioInputAttributesTool := mcp.NewTool(
-		"get_audio_input_attributes",
-		mcp.WithDescription("Get the name and icon of the audio input"),
-		mcp.WithString("room_name", mcp.Required(),
-			mcp.Description("The name of the room to get audio input attributes from")),
-	)
-	s.AddTool(getAudioInputAttributesTool, h.GetAudioInputAttributesHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "get_audio_input_attributes",
+		Description: "Get the name and icon of the audio input",
+	}, h.GetAudioInputAttributesHandler)
 
-	getLineInLevelTool := mcp.NewTool(
-		"get_line_in_level",
-		mcp.WithDescription("Get the current left and right line-in levels"),
-		mcp.WithString("room_name", mcp.Required(),
-			mcp.Description("The name of the room to get line-in levels from")),
-	)
-	s.AddTool(getLineInLevelTool, h.GetLineInLevelHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "get_line_in_level",
+		Description: "Get the current left and right line-in levels",
+	}, h.GetLineInLevelHandler)
 
-	setLineInLevelTool := mcp.NewTool(
-		"set_line_in_level",
-		mcp.WithDescription("Set the left and right line-in levels"),
-		mcp.WithString("room_name", mcp.Required(),
-			mcp.Description("The name of the room to set line-in levels for")),
-		mcp.WithNumber("desired_left_line_in_level", mcp.Required(),
-			mcp.Description("The desired left line-in level")),
-		mcp.WithNumber("desired_right_line_in_level", mcp.Required(),
-			mcp.Description("The desired right line-in level")),
-	)
-	s.AddTool(setLineInLevelTool, h.SetLineInLevelHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "set_line_in_level",
+		Description: "Set the left and right line-in levels",
+	}, h.SetLineInLevelHandler)
 
-	selectAudioTool := mcp.NewTool(
-		"select_audio",
-		mcp.WithDescription("Select an audio input by its ObjectID"),
-		mcp.WithString("room_name", mcp.Required(),
-			mcp.Description("The name of the room to select audio for")),
-		mcp.WithString("object_id", mcp.Required(),
-			mcp.Description("The ObjectID of the audio input to select")),
-	)
-	s.AddTool(selectAudioTool, h.SelectAudioHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "select_audio",
+		Description: "Select an audio input by its ObjectID",
+	}, h.SelectAudioHandler)
 
-	getZoneInfoTool := mcp.NewTool(
-		"get_zone_info",
-		mcp.WithDescription("Get detailed information about a Sonos device"),
-		mcp.WithString("room_name", mcp.Required(),
-			mcp.Description("The name of the room to get zone info from")),
-	)
-	s.AddTool(getZoneInfoTool, h.GetZoneInfoHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "get_zone_info",
+		Description: "Get detailed information about a Sonos device",
+	}, h.GetZoneInfoHandler)
 
-	getUUIDTool := mcp.NewTool(
-		"get_uuid",
-		mcp.WithDescription("Get the UUID of a Sonos device"),
-		mcp.WithString("room_name", mcp.Required(),
-			mcp.Description("The name of the room to get the UUID from")),
-	)
-	s.AddTool(getUUIDTool, h.GetUUIDHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "get_uuid",
+		Description: "Get the UUID of a Sonos device",
+	}, h.GetUUIDHandler)
 
-	switchToLineInTool := mcp.NewTool(
-		"switch_to_line_in",
-		mcp.WithDescription("Switch playback to the line-in input"),
-		mcp.WithString("room_name", mcp.Required(),
-			mcp.Description("The name of the room to switch to line-in in")),
-	)
-	s.AddTool(switchToLineInTool, h.SwitchToLineInHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "switch_to_line_in",
+		Description: "Switch playback to the line-in input",
+	}, h.SwitchToLineInHandler)
 
-	switchToQueueTool := mcp.NewTool(
-		"switch_to_queue",
-		mcp.WithDescription("Switch playback to the queue"),
-		mcp.WithString("room_name", mcp.Required(),
-			mcp.Description("The name of the room to switch to the queue in")),
-	)
-	s.AddTool(switchToQueueTool, h.SwitchToQueueHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "switch_to_queue",
+		Description: "Switch playback to the queue",
+	}, h.SwitchToQueueHandler)
 
-	listGroupsTool := mcp.NewTool(
-		"list_sonos_groups",
-		mcp.WithDescription("List all Sonos zone groups on the network"),
-		mcp.WithString("room_name", mcp.Required(),
-			mcp.Description("The name of a room in the group (coordinator or member)")),
-	)
-	s.AddTool(listGroupsTool, h.ListGroupsHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "list_sonos_groups",
+		Description: "List all Sonos zone groups on the network",
+	}, h.ListGroupsHandler)
 
-	getZoneGroupAttributesTool := mcp.NewTool(
-		"get_zone_group_attributes",
-		mcp.WithDescription("Get the zone group attributes for a given room"),
-		mcp.WithString("room_name", mcp.Required(),
-			mcp.Description("The name of the room to get zone group attributes for")),
-	)
-	s.AddTool(getZoneGroupAttributesTool, h.GetZoneGroupAttributesHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "get_zone_group_attributes",
+		Description: "Get the zone group attributes for a given room",
+	}, h.GetZoneGroupAttributesHandler)
 
-	addGroupMemberTool := mcp.NewTool(
-		"add_group_member",
-		mcp.WithDescription("Add a member to a Sonos group"),
-		mcp.WithString("coordinator_room_name", mcp.Required(),
-			mcp.Description("The name of the coordinator room")),
-		mcp.WithString("member_room_name", mcp.Required(),
-			mcp.Description("The name of the member room to add")),
-	)
-	s.AddTool(addGroupMemberTool, h.AddGroupMemberHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "add_group_member",
+		Description: "Add a member to a Sonos group",
+	}, h.AddGroupMemberHandler)
 
-	removeGroupMemberTool := mcp.NewTool(
-		"remove_group_member",
-		mcp.WithDescription("Remove a member from a Sonos group"),
-		mcp.WithString("coordinator_room_name", mcp.Required(),
-			mcp.Description("The name of the coordinator room")),
-		mcp.WithString("member_room_name", mcp.Required(),
-			mcp.Description("The name of the member room to remove")),
-	)
-	s.AddTool(removeGroupMemberTool, h.RemoveGroupMemberHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "remove_group_member",
+		Description: "Remove a member from a Sonos group",
+	}, h.RemoveGroupMemberHandler)
 
-	getGroupVolumeTool := mcp.NewTool(
-		"get_group_volume",
-		mcp.WithDescription("Get the current volume of a Sonos group"),
-		mcp.WithString("room_name", mcp.Required(),
-			mcp.Description("The name of a room in the group (coordinator or member)")),
-	)
-	s.AddTool(getGroupVolumeTool, h.GetGroupVolumeHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "get_group_volume",
+		Description: "Get the current volume of a Sonos group",
+	}, h.GetGroupVolumeHandler)
 
-	setGroupVolumeTool := mcp.NewTool(
-		"set_group_volume",
-		mcp.WithDescription("Set the volume of a Sonos group"),
-		mcp.WithString("room_name", mcp.Required(),
-			mcp.Description("The name of a room in the group (coordinator or member)")),
-	)
-	s.AddTool(setGroupVolumeTool, h.SetGroupVolumeHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "set_group_volume",
+		Description: "Set the volume of a Sonos group",
+	}, h.SetGroupVolumeHandler)
 
-	getMediaInfoTool := mcp.NewTool(
-		"get_media_info",
-		mcp.WithDescription("Get the current media information on a Sonos device"),
-		mcp.WithString("room_name", mcp.Required(),
-			mcp.Description("The name of the room to get media info from")),
-	)
-	s.AddTool(getMediaInfoTool, h.GetMediaInfoHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "get_media_info",
+		Description: "Get the current media information on a Sonos device",
+	}, h.GetMediaInfoHandler)
 
-	searchSpotifyTool := mcp.NewTool(
-		"search_spotify",
-		mcp.WithDescription("Search for a track, album, or artist on Spotify and returns its URI"),
-		mcp.WithString("query", mcp.Required(),
-			mcp.Description("The search query")),
-		mcp.WithString("search_type", mcp.Required(),
-			mcp.Description("The type of search to perform (track, album, playlist, or artist)")),
-	)
-	s.AddTool(searchSpotifyTool, h.SearchSpotifyHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "search_spotify",
+		Description: "Search for a track, album, or artist on Spotify and returns its URI",
+	}, h.SearchSpotifyHandler)
 
-	playSpotifyURITool := mcp.NewTool(
-		"play_spotify_uri",
-		mcp.WithDescription("Play a Spotify URI on a Sonos device"),
-		mcp.WithString("room_name", mcp.Required(),
-			mcp.Description("The name of the room to play the Spotify URI in")),
-		mcp.WithString("track_info_json", mcp.Required(),
-			mcp.Description("JSON string containing Spotify track, album or playlist information (URI, title, artist, album, album art URL)")),
-	)
-	s.AddTool(playSpotifyURITool, h.PlaySpotifyURIHandler)
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "play_spotify_uri",
+		Description: "Play a Spotify URI on a Sonos device",
+	}, h.PlaySpotifyURIHandler)
 
-	// Choose transport based on environment
-	transport := os.Getenv("MCP_TRANSPORT")
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
-
-	switch transport {
+	// Choose transport based on the command-line argument
+	switch *transport {
 	case "http":
-		httpServer := server.NewStreamableHTTPServer(s)
-		if err := httpServer.Start(":" + port); err != nil {
-			log.Fatalf("HTTP Server error: %v", err)
+		server := &http.Server{
+			Addr: ":" + *port,
+			Handler: mcp.NewStreamableHTTPHandler(func(req *http.Request) *mcp.Server {
+				return s
+			}, nil),
 		}
-	case "sse":
-		sseServer := server.NewSSEServer(s)
-		if err := sseServer.Start(":" + port); err != nil {
-			log.Fatalf("SSE Server error: %v", err)
+
+		go func() {
+			log.Printf("Starting HTTP server on port %s", *port)
+			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Fatalf("HTTP Server error: %v", err)
+			}
+		}()
+
+		// Wait for interrupt signal to gracefully shut down the server
+		quit := make(chan os.Signal, 1)
+		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+		<-quit
+		log.Println("Shutting down HTTP server...")
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err := server.Shutdown(ctx); err != nil {
+			log.Fatalf("Server forced to shutdown: %v", err)
 		}
+		log.Println("HTTP server exited gracefully.")
 	default:
 		// Start the stdio server. This allows communication over standard input/output.
-		if err := server.ServeStdio(s); err != nil {
+		transport := &mcp.StdioTransport{}
+		session, err := s.Connect(context.Background(), transport, nil)
+		if err != nil {
 			log.Fatalf("Stdio Server error: %v", err)
 		}
+		session.Wait()
 	}
 }
