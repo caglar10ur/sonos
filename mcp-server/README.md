@@ -7,7 +7,7 @@ The `mcp-server` is a Multi-Capability Protocol (MCP) server designed to provide
 This server provides the following capabilities for Sonos control:
 
 *   **Device Listing:**
-    *   `list_sonos_devices`: List all Sonos devices on the network.
+    *   `list_sonos_devices`: List all Sonos devices on the network. Discovery results are cached for performance.
 *   **Playback Control:**
     *   `play`: Start playback on a Sonos device.
     *   `stop`: Stop playback on a Sonos device.
@@ -59,14 +59,26 @@ This will create an executable named `mcp-server` in the current directory.
 
 ## Usage
 
-The server can be run with different transport mechanisms by providing the `-transport` command-line argument.
+The server supports the following command-line flags:
+
+*   `-transport`: Transport type for MCP server (`http` or `stdio`). Default is `stdio`.
+*   `-port`: Port for the HTTP server. Default is `8888`.
+*   `-search-timeout`: Timeout for Sonos device search (e.g., `2s`, `500ms`). Default is `2s`.
+*   `-spotify-client-id`: Spotify client ID (can also be set via `SPOTIFY_CLIENT_ID` env var).
+*   `-spotify-client-secret`: Spotify client secret (can also be set via `SPOTIFY_CLIENT_SECRET` env var).
 
 ### Stdio (Default)
 
-If the `-transport` flag is not provided or set to an unknown value, the server will communicate over standard input/output.
+If the `-transport` flag is not provided or set to `stdio`, the server will communicate over standard input/output. This is the standard mode for use with MCP clients (like Claude Desktop).
 
 ```bash
 ./mcp-server
+```
+
+To increase the device discovery timeout if your network is slow:
+
+```bash
+./mcp-server -search-timeout 5s
 ```
 
 ### HTTP Server
@@ -100,4 +112,3 @@ To obtain your `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET`:
 4.  Fill in the App Name and App Description. You can leave the Redirect URI empty for this server.
 5.  After creating the app, your Client ID will be visible. Click "Show client secret" to reveal your Client Secret.
 6.  Use these credentials as environment variables when running the `mcp-server`.
-

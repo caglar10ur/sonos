@@ -3,14 +3,14 @@ package sonoscontrol
 import (
 	"context"
 	"sync"
-	"time"
 
 	"github.com/caglar10ur/sonos"
 )
 
-const (
-	defaultTimeout = 10 * time.Second
-)
+type SonosControllerInterface interface {
+	ListSonosDevices(ctx context.Context) ([]string, error)
+	CachedRoom(ctx context.Context, roomName string) (*sonos.ZonePlayer, error)
+}
 
 type SonosController struct {
 	sonos *sonos.Sonos
@@ -42,16 +42,19 @@ func (sc *SonosController) CachedRoom(ctx context.Context, roomName string) (*so
 }
 
 func (sc *SonosController) ListSonosDevices(ctx context.Context) ([]string, error) {
-	var devices []string
-	ctx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
-	defer cancel()
-
 	sc.sonos.Search(ctx, func(s *sonos.Sonos, zp *sonos.ZonePlayer) {
-		devices = append(devices, zp.RoomName())
 		sc.cache.Store(zp.RoomName(), zp)
 	})
 
 	<-ctx.Done()
+
+	var devices []string
+	sc.cache.Range(func(key, value any) bool {
+		if name, ok := key.(string); ok {
+			devices = append(devices, name)
+		}
+		return true
+	})
 
 	return devices, nil
 }
