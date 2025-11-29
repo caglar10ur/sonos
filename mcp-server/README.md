@@ -43,6 +43,9 @@ This server provides the following capabilities for Sonos control:
     *   `remove_group_member`: Remove a member from a Sonos group.
     *   `get_group_volume`: Get the current volume of a Sonos group.
     *   `set_group_volume`: Set the volume of a Sonos group.
+*   **Spotify Integration:**
+    *   `search_spotify`: Search for a track, album, or artist on Spotify and returns its URI.
+    *   `play_spotify_uri`: Play a Spotify URI on a Sonos device.
 
 ## Installation
 
@@ -56,11 +59,11 @@ This will create an executable named `mcp-server` in the current directory.
 
 ## Usage
 
-The server can be run with different transport mechanisms by setting the `MCP_TRANSPORT` environment variable.
+The server can be run with different transport mechanisms by providing the `-transport` command-line argument.
 
 ### Stdio (Default)
 
-If `MCP_TRANSPORT` is not set, the server will communicate over standard input/output.
+If the `-transport` flag is not provided or set to an unknown value, the server will communicate over standard input/output.
 
 ```bash
 ./mcp-server
@@ -71,21 +74,30 @@ If `MCP_TRANSPORT` is not set, the server will communicate over standard input/o
 To run as an HTTP server:
 
 ```bash
-MCP_TRANSPORT=http ./mcp-server
+./mcp-server -transport http
 ```
 
-By default, it listens on port `8080`. You can change this by setting the `PORT` environment variable:
+By default, it listens on port `8888`. You can change this by using the `-port` flag:
 
 ```bash
-PORT=9000 MCP_TRANSPORT=http ./mcp-server
+./mcp-server -transport http -port 9000
 ```
 
-### SSE Server
+## Environment Variables
 
-To run as an SSE (Server-Sent Events) server:
+The following environment variables are required for Spotify integration:
 
-```bash
-MCP_TRANSPORT=sse ./mcp-server
-```
+*   `SPOTIFY_CLIENT_ID`: Your Spotify application client ID.
+*   `SPOTIFY_CLIENT_SECRET`: Your Spotify application client secret.
 
-Similar to HTTP, you can specify the port using the `PORT` environment variable.
+### Obtaining Spotify Credentials
+
+To obtain your `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET`:
+
+1.  Go to the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
+2.  Log in with your Spotify account.
+3.  Click on "Create an app".
+4.  Fill in the App Name and App Description. You can leave the Redirect URI empty for this server.
+5.  After creating the app, your Client ID will be visible. Click "Show client secret" to reveal your Client Secret.
+6.  Use these credentials as environment variables when running the `mcp-server`.
+
