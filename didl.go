@@ -2,6 +2,7 @@ package sonos
 
 import (
 	"encoding/xml"
+	"fmt"
 
 	"github.com/caglar10ur/sonos/didl"
 )
@@ -20,7 +21,7 @@ func NewDIDL() *Lite {
 func ParseDIDL(raw string) (*Lite, error) {
 	didl := NewDIDL()
 	if err := xml.Unmarshal([]byte(raw), &didl); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to parse DIDL %q: %w", raw, err)
 	}
 	return didl, nil
 

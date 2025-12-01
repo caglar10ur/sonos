@@ -479,6 +479,25 @@ func (z *ZonePlayer) SetAVTransportURI(url string) error {
 	return err
 }
 
+// Event processes incoming UPnP events and dispatches them to the registered event handler.
+// It handles complex events (LastChange, ZoneGroupState) by unmarshalling their XML payload,
+// and simple events by passing the typed value directly.
+//
+// Handled Services:
+//   - AVTransport (LastChange)
+//   - RenderingControl (LastChange)
+//   - Queue (LastChange)
+//   - ZoneGroupTopology (AvailableSoftwareUpdate, ZoneGroupState, etc.)
+//   - AlarmClock
+//   - AudioIn
+//   - ConnectionManager
+//   - ContentDirectory
+//   - DeviceProperties
+//   - GroupManagement
+//   - GroupRenderingControl
+//   - MusicServices
+//   - SystemProperties
+//   - VirtualLineIn
 func (zp *ZonePlayer) Event(evt interface{}, fn EventHandlerFunc) {
 	switch e := evt.(type) {
 	case avt.LastChange:
