@@ -3,12 +3,11 @@ package sonos
 import (
 	"encoding/xml"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
-	"time"
-
 	"strings"
+	"time"
 
 	"github.com/caglar10ur/sonos/didl"
 	avt "github.com/caglar10ur/sonos/services/AVTransport"
@@ -184,7 +183,7 @@ func NewZonePlayer(opts ...ZonePlayerOption) (*ZonePlayer, error) {
 		return nil, err
 	}
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
@@ -482,138 +481,6 @@ func (z *ZonePlayer) SetAVTransportURI(url string) error {
 
 func (zp *ZonePlayer) Event(evt interface{}, fn EventHandlerFunc) {
 	switch e := evt.(type) {
-	/*
-		AlarmClock
-
-			type TimeZone string
-			type TimeServer string
-			type TimeGeneration uint32
-			type AlarmListVersion string
-			type DailyIndexRefreshTime string
-			type TimeFormat string
-			type DateFormat string
-
-		AudioIn
-
-			type AudioInputName string
-			type Icon string
-			type LineInConnected bool
-			type LeftLineInLevel int32
-			type RightLineInLevel int32
-			type Playing bool
-
-		✅ AVTransport
-
-			✅ type LastChange string
-
-		ConnectionManage
-
-			type SourceProtocolInfo string
-			type SinkProtocolInfo string
-			type CurrentConnectionIDs string
-
-		ContentDirectory
-
-			type SystemUpdateID uint32
-			type ContainerUpdateIDs string
-			type ShareIndexInProgress bool
-			type ShareIndexLastError string
-			type UserRadioUpdateID string
-			type SavedQueuesUpdateID string
-			type ShareListUpdateID string
-			type RecentlyPlayedUpdateID string
-			type Browseable bool
-			type RadioFavoritesUpdateID uint32
-			type RadioLocationUpdateID uint32
-			type FavoritesUpdateID string
-			type FavoritePresetsUpdateID string
-
-		DevicePropoerties
-
-			type SettingsReplicationState string
-			type ZoneName string
-			type Icon string
-			type Configuration string
-			type Invisible bool
-			type IsZoneBridge bool
-			type AirPlayEnabled bool
-			type SupportsAudioIn bool
-			type SupportsAudioClip bool
-			type IsIdle bool
-			type MoreInfo string
-			type ChannelMapSet string
-			type HTSatChanMapSet string
-			type HTBondedZoneCommitState uint32
-			type Orientation int32
-			type LastChangedPlayState string
-			type RoomCalibrationState int32
-			type AvailableRoomCalibration string
-			type TVConfigurationError bool
-			type HdmiCecAvailable bool
-			type WirelessMode uint32
-			type WirelessLeafOnly bool
-			type HasConfiguredSSID bool
-			type ChannelFreq uint32
-			type BehindWifiExtender uint32
-			type WifiEnabled bool
-			type EthLink bool
-			type ConfigMode string
-			type SecureRegState uint32
-			type VoiceConfigState uint32
-			type MicEnabled uint32
-
-		GroupManagement
-
-			type GroupCoordinatorIsLocal bool
-			type LocalGroupUUID string
-			type VirtualLineInGroupID string
-			type ResetVolumeAfter bool
-			type VolumeAVTransportURI string
-
-		GroupRenderingControl
-
-			type GroupMute bool
-			type GroupVolume uint16
-			type GroupVolumeChangeable bool
-
-		MusicServices
-
-			type ServiceListVersion string
-
-		✅ Queue
-
-			✅ type LastChange string
-
-		✅ RenderingControl
-
-			✅ type LastChange string
-
-		SystemProperties
-
-			type CustomerID string
-			type UpdateID uint32
-			type UpdateIDX uint32
-			type VoiceUpdateID uint32
-			type ThirdPartyHash string
-
-		VirtualLinein
-
-			type CurrentTrackMetaData string
-
-		ZoneGroupTopology
-
-			✅ type AvailableSoftwareUpdate string
-			✅ type ZoneGroupState string
-			type ThirdPartyMediaServersX string
-			type AlarmRunSequence string
-			type MuseHouseholdId string
-			type ZoneGroupName string
-			type ZoneGroupID string
-			type ZonePlayerUUIDsInGroup string
-			type AreasUpdateID string
-			type SourceAreasUpdateID string
-			type NetsettingsUpdateID string
-	*/
 	case avt.LastChange:
 		var levt AVTransportLastChange
 		err := xml.Unmarshal([]byte(e), &levt)
@@ -655,6 +522,185 @@ func (zp *ZonePlayer) Event(evt interface{}, fn EventHandlerFunc) {
 			return
 		}
 		fn(levt)
+	// AlarmClock
+	case clk.TimeZone:
+		fn(e)
+	case clk.TimeServer:
+		fn(e)
+	case clk.TimeGeneration:
+		fn(e)
+	case clk.AlarmListVersion:
+		fn(e)
+	case clk.DailyIndexRefreshTime:
+		fn(e)
+	case clk.TimeFormat:
+		fn(e)
+	case clk.DateFormat:
+		fn(e)
+	// AudioIn
+	case ain.AudioInputName:
+		fn(e)
+	case ain.Icon:
+		fn(e)
+	case ain.LineInConnected:
+		fn(e)
+	case ain.LeftLineInLevel:
+		fn(e)
+	case ain.RightLineInLevel:
+		fn(e)
+	case ain.Playing:
+		fn(e)
+	// ConnectionManager
+	case con.SourceProtocolInfo:
+		fn(e)
+	case con.SinkProtocolInfo:
+		fn(e)
+	case con.CurrentConnectionIDs:
+		fn(e)
+	// ContentDirectory
+	case dir.SystemUpdateID:
+		fn(e)
+	case dir.ContainerUpdateIDs:
+		fn(e)
+	case dir.ShareIndexInProgress:
+		fn(e)
+	case dir.ShareIndexLastError:
+		fn(e)
+	case dir.UserRadioUpdateID:
+		fn(e)
+	case dir.SavedQueuesUpdateID:
+		fn(e)
+	case dir.ShareListUpdateID:
+		fn(e)
+	case dir.RecentlyPlayedUpdateID:
+		fn(e)
+	case dir.Browseable:
+		fn(e)
+	case dir.RadioFavoritesUpdateID:
+		fn(e)
+	case dir.RadioLocationUpdateID:
+		fn(e)
+	case dir.FavoritesUpdateID:
+		fn(e)
+	case dir.FavoritePresetsUpdateID:
+		fn(e)
+	// DeviceProperties
+	case dev.SettingsReplicationState:
+		fn(e)
+	case dev.ZoneName:
+		fn(e)
+	case dev.Icon:
+		fn(e)
+	case dev.Configuration:
+		fn(e)
+	case dev.Invisible:
+		fn(e)
+	case dev.IsZoneBridge:
+		fn(e)
+	case dev.AirPlayEnabled:
+		fn(e)
+	case dev.SupportsAudioIn:
+		fn(e)
+	case dev.SupportsAudioClip:
+		fn(e)
+	case dev.IsIdle:
+		fn(e)
+	case dev.MoreInfo:
+		fn(e)
+	case dev.ChannelMapSet:
+		fn(e)
+	case dev.HTSatChanMapSet:
+		fn(e)
+	case dev.HTBondedZoneCommitState:
+		fn(e)
+	case dev.Orientation:
+		fn(e)
+	case dev.LastChangedPlayState:
+		fn(e)
+	case dev.RoomCalibrationState:
+		fn(e)
+	case dev.AvailableRoomCalibration:
+		fn(e)
+	case dev.TVConfigurationError:
+		fn(e)
+	case dev.HdmiCecAvailable:
+		fn(e)
+	case dev.WirelessMode:
+		fn(e)
+	case dev.WirelessLeafOnly:
+		fn(e)
+	case dev.HasConfiguredSSID:
+		fn(e)
+	case dev.ChannelFreq:
+		fn(e)
+	case dev.BehindWifiExtender:
+		fn(e)
+	case dev.WifiEnabled:
+		fn(e)
+	case dev.EthLink:
+		fn(e)
+	case dev.ConfigMode:
+		fn(e)
+	case dev.SecureRegState:
+		fn(e)
+	case dev.VoiceConfigState:
+		fn(e)
+	case dev.MicEnabled:
+		fn(e)
+	// GroupManagement
+	case gmn.GroupCoordinatorIsLocal:
+		fn(e)
+	case gmn.LocalGroupUUID:
+		fn(e)
+	case gmn.VirtualLineInGroupID:
+		fn(e)
+	case gmn.ResetVolumeAfter:
+		fn(e)
+	case gmn.VolumeAVTransportURI:
+		fn(e)
+	// GroupRenderingControl
+	case rcg.GroupMute:
+		fn(e)
+	case rcg.GroupVolume:
+		fn(e)
+	case rcg.GroupVolumeChangeable:
+		fn(e)
+	// MusicServices
+	case mus.ServiceListVersion:
+		fn(e)
+	// SystemProperties
+	case sys.CustomerID:
+		fn(e)
+	case sys.UpdateID:
+		fn(e)
+	case sys.UpdateIDX:
+		fn(e)
+	case sys.VoiceUpdateID:
+		fn(e)
+	case sys.ThirdPartyHash:
+		fn(e)
+	// VirtualLineIn
+	case vli.CurrentTrackMetaData:
+		fn(e)
+	// ZoneGroupTopology
+	case zgt.ThirdPartyMediaServersX:
+		fn(e)
+	case zgt.AlarmRunSequence:
+		fn(e)
+	case zgt.MuseHouseholdId:
+		fn(e)
+	case zgt.ZoneGroupName:
+		fn(e)
+	case zgt.ZoneGroupID:
+		fn(e)
+	case zgt.ZonePlayerUUIDsInGroup:
+		fn(e)
+	case zgt.AreasUpdateID:
+		fn(e)
+	case zgt.SourceAreasUpdateID:
+		fn(e)
+	case zgt.NetsettingsUpdateID:
+		fn(e)
 	default:
 		fmt.Printf("Unhandeld event %T: %s\n", e, e)
 	}
