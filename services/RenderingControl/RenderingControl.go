@@ -32,6 +32,31 @@ func WithLocation(u *url.URL) ServiceOption {
 	}
 }
 
+// Enumerations
+type ChannelEnum string
+
+const (
+	Channel_Master ChannelEnum = "Master"
+	Channel_LF     ChannelEnum = "LF"
+	Channel_RF     ChannelEnum = "RF"
+)
+
+type MuteChannelEnum string
+
+const (
+	MuteChannel_Master MuteChannelEnum = "Master"
+	MuteChannel_LF     MuteChannelEnum = "LF"
+	MuteChannel_RF     MuteChannelEnum = "RF"
+)
+
+type RampTypeEnum string
+
+const (
+	RampType_SLEEP_TIMER_RAMP_TYPE RampTypeEnum = "SLEEP_TIMER_RAMP_TYPE"
+	RampType_ALARM_RAMP_TYPE       RampTypeEnum = "ALARM_RAMP_TYPE"
+	RampType_AUTOPLAY_RAMP_TYPE    RampTypeEnum = "AUTOPLAY_RAMP_TYPE"
+)
+
 // State Variables
 type LastChange string
 
@@ -207,9 +232,9 @@ func (s *Service) exec(actionName string, envelope *envelope) (*envelopeResponse
 
 // GetMute Argument type.
 type GetMuteArgs struct {
-	Xmlns      string `xml:"xmlns:u,attr"`
-	InstanceID uint32 `xml:"InstanceID"`
-	Channel    string `xml:"Channel"`
+	Xmlns      string          `xml:"xmlns:u,attr"`
+	InstanceID uint32          `xml:"InstanceID"`
+	Channel    MuteChannelEnum `xml:"Channel"`
 }
 
 // GetMute Response type.
@@ -238,10 +263,10 @@ func (s *Service) GetMute(args *GetMuteArgs) (*GetMuteResponse, error) {
 
 // SetMute Argument type.
 type SetMuteArgs struct {
-	Xmlns       string `xml:"xmlns:u,attr"`
-	InstanceID  uint32 `xml:"InstanceID"`
-	Channel     string `xml:"Channel"`
-	DesiredMute bool   `xml:"DesiredMute"`
+	Xmlns       string          `xml:"xmlns:u,attr"`
+	InstanceID  uint32          `xml:"InstanceID"`
+	Channel     MuteChannelEnum `xml:"Channel"`
+	DesiredMute bool            `xml:"DesiredMute"`
 }
 
 // SetMute Response type.
@@ -333,9 +358,9 @@ func (s *Service) ResetExtEQ(args *ResetExtEQArgs) (*ResetExtEQResponse, error) 
 
 // GetVolume Argument type.
 type GetVolumeArgs struct {
-	Xmlns      string `xml:"xmlns:u,attr"`
-	InstanceID uint32 `xml:"InstanceID"`
-	Channel    string `xml:"Channel"`
+	Xmlns      string      `xml:"xmlns:u,attr"`
+	InstanceID uint32      `xml:"InstanceID"`
+	Channel    ChannelEnum `xml:"Channel"`
 }
 
 // GetVolume Response type.
@@ -364,10 +389,10 @@ func (s *Service) GetVolume(args *GetVolumeArgs) (*GetVolumeResponse, error) {
 
 // SetVolume Argument type.
 type SetVolumeArgs struct {
-	Xmlns         string `xml:"xmlns:u,attr"`
-	InstanceID    uint32 `xml:"InstanceID"`
-	Channel       string `xml:"Channel"`
-	DesiredVolume uint16 `xml:"DesiredVolume"`
+	Xmlns         string      `xml:"xmlns:u,attr"`
+	InstanceID    uint32      `xml:"InstanceID"`
+	Channel       ChannelEnum `xml:"Channel"`
+	DesiredVolume uint16      `xml:"DesiredVolume"`
 }
 
 // SetVolume Response type.
@@ -395,10 +420,10 @@ func (s *Service) SetVolume(args *SetVolumeArgs) (*SetVolumeResponse, error) {
 
 // SetRelativeVolume Argument type.
 type SetRelativeVolumeArgs struct {
-	Xmlns      string `xml:"xmlns:u,attr"`
-	InstanceID uint32 `xml:"InstanceID"`
-	Channel    string `xml:"Channel"`
-	Adjustment int32  `xml:"Adjustment"`
+	Xmlns      string      `xml:"xmlns:u,attr"`
+	InstanceID uint32      `xml:"InstanceID"`
+	Channel    ChannelEnum `xml:"Channel"`
+	Adjustment int32       `xml:"Adjustment"`
 }
 
 // SetRelativeVolume Response type.
@@ -427,9 +452,9 @@ func (s *Service) SetRelativeVolume(args *SetRelativeVolumeArgs) (*SetRelativeVo
 
 // GetVolumeDB Argument type.
 type GetVolumeDBArgs struct {
-	Xmlns      string `xml:"xmlns:u,attr"`
-	InstanceID uint32 `xml:"InstanceID"`
-	Channel    string `xml:"Channel"`
+	Xmlns      string      `xml:"xmlns:u,attr"`
+	InstanceID uint32      `xml:"InstanceID"`
+	Channel    ChannelEnum `xml:"Channel"`
 }
 
 // GetVolumeDB Response type.
@@ -458,10 +483,10 @@ func (s *Service) GetVolumeDB(args *GetVolumeDBArgs) (*GetVolumeDBResponse, erro
 
 // SetVolumeDB Argument type.
 type SetVolumeDBArgs struct {
-	Xmlns         string `xml:"xmlns:u,attr"`
-	InstanceID    uint32 `xml:"InstanceID"`
-	Channel       string `xml:"Channel"`
-	DesiredVolume int16  `xml:"DesiredVolume"`
+	Xmlns         string      `xml:"xmlns:u,attr"`
+	InstanceID    uint32      `xml:"InstanceID"`
+	Channel       ChannelEnum `xml:"Channel"`
+	DesiredVolume int16       `xml:"DesiredVolume"`
 }
 
 // SetVolumeDB Response type.
@@ -489,9 +514,9 @@ func (s *Service) SetVolumeDB(args *SetVolumeDBArgs) (*SetVolumeDBResponse, erro
 
 // GetVolumeDBRange Argument type.
 type GetVolumeDBRangeArgs struct {
-	Xmlns      string `xml:"xmlns:u,attr"`
-	InstanceID uint32 `xml:"InstanceID"`
-	Channel    string `xml:"Channel"`
+	Xmlns      string      `xml:"xmlns:u,attr"`
+	InstanceID uint32      `xml:"InstanceID"`
+	Channel    ChannelEnum `xml:"Channel"`
 }
 
 // GetVolumeDBRange Response type.
@@ -703,9 +728,9 @@ func (s *Service) SetEQ(args *SetEQArgs) (*SetEQResponse, error) {
 
 // GetLoudness Argument type.
 type GetLoudnessArgs struct {
-	Xmlns      string `xml:"xmlns:u,attr"`
-	InstanceID uint32 `xml:"InstanceID"`
-	Channel    string `xml:"Channel"`
+	Xmlns      string      `xml:"xmlns:u,attr"`
+	InstanceID uint32      `xml:"InstanceID"`
+	Channel    ChannelEnum `xml:"Channel"`
 }
 
 // GetLoudness Response type.
@@ -734,10 +759,10 @@ func (s *Service) GetLoudness(args *GetLoudnessArgs) (*GetLoudnessResponse, erro
 
 // SetLoudness Argument type.
 type SetLoudnessArgs struct {
-	Xmlns           string `xml:"xmlns:u,attr"`
-	InstanceID      uint32 `xml:"InstanceID"`
-	Channel         string `xml:"Channel"`
-	DesiredLoudness bool   `xml:"DesiredLoudness"`
+	Xmlns           string      `xml:"xmlns:u,attr"`
+	InstanceID      uint32      `xml:"InstanceID"`
+	Channel         ChannelEnum `xml:"Channel"`
+	DesiredLoudness bool        `xml:"DesiredLoudness"`
 }
 
 // SetLoudness Response type.
@@ -885,13 +910,13 @@ func (s *Service) GetHeadphoneConnected(args *GetHeadphoneConnectedArgs) (*GetHe
 
 // RampToVolume Argument type.
 type RampToVolumeArgs struct {
-	Xmlns            string `xml:"xmlns:u,attr"`
-	InstanceID       uint32 `xml:"InstanceID"`
-	Channel          string `xml:"Channel"`
-	RampType         string `xml:"RampType"`
-	DesiredVolume    uint16 `xml:"DesiredVolume"`
-	ResetVolumeAfter bool   `xml:"ResetVolumeAfter"`
-	ProgramURI       string `xml:"ProgramURI"`
+	Xmlns            string       `xml:"xmlns:u,attr"`
+	InstanceID       uint32       `xml:"InstanceID"`
+	Channel          ChannelEnum  `xml:"Channel"`
+	RampType         RampTypeEnum `xml:"RampType"`
+	DesiredVolume    uint16       `xml:"DesiredVolume"`
+	ResetVolumeAfter bool         `xml:"ResetVolumeAfter"`
+	ProgramURI       string       `xml:"ProgramURI"`
 }
 
 // RampToVolume Response type.
@@ -920,9 +945,9 @@ func (s *Service) RampToVolume(args *RampToVolumeArgs) (*RampToVolumeResponse, e
 
 // RestoreVolumePriorToRamp Argument type.
 type RestoreVolumePriorToRampArgs struct {
-	Xmlns      string `xml:"xmlns:u,attr"`
-	InstanceID uint32 `xml:"InstanceID"`
-	Channel    string `xml:"Channel"`
+	Xmlns      string      `xml:"xmlns:u,attr"`
+	InstanceID uint32      `xml:"InstanceID"`
+	Channel    ChannelEnum `xml:"Channel"`
 }
 
 // RestoreVolumePriorToRamp Response type.

@@ -32,6 +32,8 @@ func WithLocation(u *url.URL) ServiceOption {
 	}
 }
 
+// Enumerations
+
 // State Variables
 type CurrentTrackMetaData string
 

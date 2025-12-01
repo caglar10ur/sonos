@@ -32,6 +32,14 @@ func WithLocation(u *url.URL) ServiceOption {
 	}
 }
 
+// Enumerations
+type BrowseFlagEnum string
+
+const (
+	BrowseFlag_BrowseMetadata       BrowseFlagEnum = "BrowseMetadata"
+	BrowseFlag_BrowseDirectChildren BrowseFlagEnum = "BrowseDirectChildren"
+)
+
 // State Variables
 type SystemUpdateID uint32
 type ContainerUpdateIDs string
@@ -354,13 +362,13 @@ func (s *Service) GetLastIndexChange(args *GetLastIndexChangeArgs) (*GetLastInde
 
 // Browse Argument type.
 type BrowseArgs struct {
-	Xmlns          string `xml:"xmlns:u,attr"`
-	ObjectID       string `xml:"ObjectID"`
-	BrowseFlag     string `xml:"BrowseFlag"`
-	Filter         string `xml:"Filter"`
-	StartingIndex  uint32 `xml:"StartingIndex"`
-	RequestedCount uint32 `xml:"RequestedCount"`
-	SortCriteria   string `xml:"SortCriteria"`
+	Xmlns          string         `xml:"xmlns:u,attr"`
+	ObjectID       string         `xml:"ObjectID"`
+	BrowseFlag     BrowseFlagEnum `xml:"BrowseFlag"`
+	Filter         string         `xml:"Filter"`
+	StartingIndex  uint32         `xml:"StartingIndex"`
+	RequestedCount uint32         `xml:"RequestedCount"`
+	SortCriteria   string         `xml:"SortCriteria"`
 }
 
 // Browse Response type.

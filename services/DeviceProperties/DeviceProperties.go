@@ -32,6 +32,21 @@ func WithLocation(u *url.URL) ServiceOption {
 	}
 }
 
+// Enumerations
+type LEDStateEnum string
+
+const (
+	LEDState_On  LEDStateEnum = "On"
+	LEDState_Off LEDStateEnum = "Off"
+)
+
+type ButtonLockStateEnum string
+
+const (
+	ButtonLockState_On  ButtonLockStateEnum = "On"
+	ButtonLockState_Off ButtonLockStateEnum = "Off"
+)
+
 // State Variables
 type SettingsReplicationState string
 type ZoneName string
@@ -267,8 +282,8 @@ func (s *Service) exec(actionName string, envelope *envelope) (*envelopeResponse
 
 // SetLEDState Argument type.
 type SetLEDStateArgs struct {
-	Xmlns           string `xml:"xmlns:u,attr"`
-	DesiredLEDState string `xml:"DesiredLEDState"`
+	Xmlns           string       `xml:"xmlns:u,attr"`
+	DesiredLEDState LEDStateEnum `xml:"DesiredLEDState"`
 }
 
 // SetLEDState Response type.
@@ -301,7 +316,7 @@ type GetLEDStateArgs struct {
 
 // GetLEDState Response type.
 type GetLEDStateResponse struct {
-	CurrentLEDState string `xml:"CurrentLEDState"`
+	CurrentLEDState LEDStateEnum `xml:"CurrentLEDState"`
 }
 
 // GetLEDState calls the GetLEDState action on the service.
@@ -960,8 +975,8 @@ func (s *Service) GetButtonState(args *GetButtonStateArgs) (*GetButtonStateRespo
 
 // SetButtonLockState Argument type.
 type SetButtonLockStateArgs struct {
-	Xmlns                  string `xml:"xmlns:u,attr"`
-	DesiredButtonLockState string `xml:"DesiredButtonLockState"`
+	Xmlns                  string              `xml:"xmlns:u,attr"`
+	DesiredButtonLockState ButtonLockStateEnum `xml:"DesiredButtonLockState"`
 }
 
 // SetButtonLockState Response type.
@@ -994,7 +1009,7 @@ type GetButtonLockStateArgs struct {
 
 // GetButtonLockState Response type.
 type GetButtonLockStateResponse struct {
-	CurrentButtonLockState string `xml:"CurrentButtonLockState"`
+	CurrentButtonLockState ButtonLockStateEnum `xml:"CurrentButtonLockState"`
 }
 
 // GetButtonLockState calls the GetButtonLockState action on the service.

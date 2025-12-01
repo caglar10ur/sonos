@@ -32,6 +32,54 @@ func WithLocation(u *url.URL) ServiceOption {
 	}
 }
 
+// Enumerations
+type TransportStateEnum string
+
+const (
+	TransportState_STOPPED         TransportStateEnum = "STOPPED"
+	TransportState_PLAYING         TransportStateEnum = "PLAYING"
+	TransportState_PAUSED_PLAYBACK TransportStateEnum = "PAUSED_PLAYBACK"
+	TransportState_TRANSITIONING   TransportStateEnum = "TRANSITIONING"
+)
+
+type PlaybackStorageMediumEnum string
+
+const (
+	PlaybackStorageMedium_NONE    PlaybackStorageMediumEnum = "NONE"
+	PlaybackStorageMedium_NETWORK PlaybackStorageMediumEnum = "NETWORK"
+)
+
+type RecordStorageMediumEnum string
+
+const (
+	RecordStorageMedium_NONE RecordStorageMediumEnum = "NONE"
+)
+
+type CurrentPlayModeEnum string
+
+const (
+	CurrentPlayMode_NORMAL             CurrentPlayModeEnum = "NORMAL"
+	CurrentPlayMode_REPEAT_ALL         CurrentPlayModeEnum = "REPEAT_ALL"
+	CurrentPlayMode_REPEAT_ONE         CurrentPlayModeEnum = "REPEAT_ONE"
+	CurrentPlayMode_SHUFFLE_NOREPEAT   CurrentPlayModeEnum = "SHUFFLE_NOREPEAT"
+	CurrentPlayMode_SHUFFLE            CurrentPlayModeEnum = "SHUFFLE"
+	CurrentPlayMode_SHUFFLE_REPEAT_ONE CurrentPlayModeEnum = "SHUFFLE_REPEAT_ONE"
+)
+
+type TransportPlaySpeedEnum string
+
+const (
+	TransportPlaySpeed_1 TransportPlaySpeedEnum = "1"
+)
+
+type SeekModeEnum string
+
+const (
+	SeekMode_TRACK_NR   SeekModeEnum = "TRACK_NR"
+	SeekMode_REL_TIME   SeekModeEnum = "REL_TIME"
+	SeekMode_TIME_DELTA SeekModeEnum = "TIME_DELTA"
+)
+
 // State Variables
 type LastChange string
 
@@ -678,15 +726,15 @@ type GetMediaInfoArgs struct {
 
 // GetMediaInfo Response type.
 type GetMediaInfoResponse struct {
-	NrTracks           uint32 `xml:"NrTracks"`
-	MediaDuration      string `xml:"MediaDuration"`
-	CurrentURI         string `xml:"CurrentURI"`
-	CurrentURIMetaData string `xml:"CurrentURIMetaData"`
-	NextURI            string `xml:"NextURI"`
-	NextURIMetaData    string `xml:"NextURIMetaData"`
-	PlayMedium         string `xml:"PlayMedium"`
-	RecordMedium       string `xml:"RecordMedium"`
-	WriteStatus        string `xml:"WriteStatus"`
+	NrTracks           uint32                    `xml:"NrTracks"`
+	MediaDuration      string                    `xml:"MediaDuration"`
+	CurrentURI         string                    `xml:"CurrentURI"`
+	CurrentURIMetaData string                    `xml:"CurrentURIMetaData"`
+	NextURI            string                    `xml:"NextURI"`
+	NextURIMetaData    string                    `xml:"NextURIMetaData"`
+	PlayMedium         PlaybackStorageMediumEnum `xml:"PlayMedium"`
+	RecordMedium       RecordStorageMediumEnum   `xml:"RecordMedium"`
+	WriteStatus        string                    `xml:"WriteStatus"`
 }
 
 // GetMediaInfo calls the GetMediaInfo action on the service.
@@ -716,9 +764,9 @@ type GetTransportInfoArgs struct {
 
 // GetTransportInfo Response type.
 type GetTransportInfoResponse struct {
-	CurrentTransportState  string `xml:"CurrentTransportState"`
-	CurrentTransportStatus string `xml:"CurrentTransportStatus"`
-	CurrentSpeed           string `xml:"CurrentSpeed"`
+	CurrentTransportState  TransportStateEnum     `xml:"CurrentTransportState"`
+	CurrentTransportStatus string                 `xml:"CurrentTransportStatus"`
+	CurrentSpeed           TransportPlaySpeedEnum `xml:"CurrentSpeed"`
 }
 
 // GetTransportInfo calls the GetTransportInfo action on the service.
@@ -817,8 +865,8 @@ type GetTransportSettingsArgs struct {
 
 // GetTransportSettings Response type.
 type GetTransportSettingsResponse struct {
-	PlayMode       string `xml:"PlayMode"`
-	RecQualityMode string `xml:"RecQualityMode"`
+	PlayMode       CurrentPlayModeEnum `xml:"PlayMode"`
+	RecQualityMode string              `xml:"RecQualityMode"`
 }
 
 // GetTransportSettings calls the GetTransportSettings action on the service.
@@ -901,9 +949,9 @@ func (s *Service) Stop(args *StopArgs) (*StopResponse, error) {
 
 // Play Argument type.
 type PlayArgs struct {
-	Xmlns      string `xml:"xmlns:u,attr"`
-	InstanceID uint32 `xml:"InstanceID"`
-	Speed      string `xml:"Speed"`
+	Xmlns      string                 `xml:"xmlns:u,attr"`
+	InstanceID uint32                 `xml:"InstanceID"`
+	Speed      TransportPlaySpeedEnum `xml:"Speed"`
 }
 
 // Play Response type.
@@ -960,10 +1008,10 @@ func (s *Service) Pause(args *PauseArgs) (*PauseResponse, error) {
 
 // Seek Argument type.
 type SeekArgs struct {
-	Xmlns      string `xml:"xmlns:u,attr"`
-	InstanceID uint32 `xml:"InstanceID"`
-	Unit       string `xml:"Unit"`
-	Target     string `xml:"Target"`
+	Xmlns      string       `xml:"xmlns:u,attr"`
+	InstanceID uint32       `xml:"InstanceID"`
+	Unit       SeekModeEnum `xml:"Unit"`
+	Target     string       `xml:"Target"`
 }
 
 // Seek Response type.
@@ -1049,9 +1097,9 @@ func (s *Service) Previous(args *PreviousArgs) (*PreviousResponse, error) {
 
 // SetPlayMode Argument type.
 type SetPlayModeArgs struct {
-	Xmlns       string `xml:"xmlns:u,attr"`
-	InstanceID  uint32 `xml:"InstanceID"`
-	NewPlayMode string `xml:"NewPlayMode"`
+	Xmlns       string              `xml:"xmlns:u,attr"`
+	InstanceID  uint32              `xml:"InstanceID"`
+	NewPlayMode CurrentPlayModeEnum `xml:"NewPlayMode"`
 }
 
 // SetPlayMode Response type.
@@ -1437,16 +1485,16 @@ func (s *Service) GetRemainingSleepTimerDuration(args *GetRemainingSleepTimerDur
 
 // RunAlarm Argument type.
 type RunAlarmArgs struct {
-	Xmlns              string `xml:"xmlns:u,attr"`
-	InstanceID         uint32 `xml:"InstanceID"`
-	AlarmID            uint32 `xml:"AlarmID"`
-	LoggedStartTime    string `xml:"LoggedStartTime"`
-	Duration           string `xml:"Duration"`
-	ProgramURI         string `xml:"ProgramURI"`
-	ProgramMetaData    string `xml:"ProgramMetaData"`
-	PlayMode           string `xml:"PlayMode"`
-	Volume             uint16 `xml:"Volume"`
-	IncludeLinkedZones bool   `xml:"IncludeLinkedZones"`
+	Xmlns              string              `xml:"xmlns:u,attr"`
+	InstanceID         uint32              `xml:"InstanceID"`
+	AlarmID            uint32              `xml:"AlarmID"`
+	LoggedStartTime    string              `xml:"LoggedStartTime"`
+	Duration           string              `xml:"Duration"`
+	ProgramURI         string              `xml:"ProgramURI"`
+	ProgramMetaData    string              `xml:"ProgramMetaData"`
+	PlayMode           CurrentPlayModeEnum `xml:"PlayMode"`
+	Volume             uint16              `xml:"Volume"`
+	IncludeLinkedZones bool                `xml:"IncludeLinkedZones"`
 }
 
 // RunAlarm Response type.

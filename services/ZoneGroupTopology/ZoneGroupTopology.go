@@ -32,6 +32,22 @@ func WithLocation(u *url.URL) ServiceOption {
 	}
 }
 
+// Enumerations
+type UpdateTypeEnum string
+
+const (
+	UpdateType_All      UpdateTypeEnum = "All"
+	UpdateType_Software UpdateTypeEnum = "Software"
+)
+
+type UnresponsiveDeviceActionTypeEnum string
+
+const (
+	UnresponsiveDeviceActionType_Remove                     UnresponsiveDeviceActionTypeEnum = "Remove"
+	UnresponsiveDeviceActionType_TopologyMonitorProbe       UnresponsiveDeviceActionTypeEnum = "TopologyMonitorProbe"
+	UnresponsiveDeviceActionType_VerifyThenRemoveSystemwide UnresponsiveDeviceActionTypeEnum = "VerifyThenRemoveSystemwide"
+)
+
 // State Variables
 type AvailableSoftwareUpdate string
 type ZoneGroupState string
@@ -189,10 +205,10 @@ func (s *Service) exec(actionName string, envelope *envelope) (*envelopeResponse
 
 // CheckForUpdate Argument type.
 type CheckForUpdateArgs struct {
-	Xmlns      string `xml:"xmlns:u,attr"`
-	UpdateType string `xml:"UpdateType"`
-	CachedOnly bool   `xml:"CachedOnly"`
-	Version    string `xml:"Version"`
+	Xmlns      string         `xml:"xmlns:u,attr"`
+	UpdateType UpdateTypeEnum `xml:"UpdateType"`
+	CachedOnly bool           `xml:"CachedOnly"`
+	Version    string         `xml:"Version"`
 }
 
 // CheckForUpdate Response type.
@@ -252,9 +268,9 @@ func (s *Service) BeginSoftwareUpdate(args *BeginSoftwareUpdateArgs) (*BeginSoft
 
 // ReportUnresponsiveDevice Argument type.
 type ReportUnresponsiveDeviceArgs struct {
-	Xmlns         string `xml:"xmlns:u,attr"`
-	DeviceUUID    string `xml:"DeviceUUID"`
-	DesiredAction string `xml:"DesiredAction"`
+	Xmlns         string                           `xml:"xmlns:u,attr"`
+	DeviceUUID    string                           `xml:"DeviceUUID"`
+	DesiredAction UnresponsiveDeviceActionTypeEnum `xml:"DesiredAction"`
 }
 
 // ReportUnresponsiveDevice Response type.

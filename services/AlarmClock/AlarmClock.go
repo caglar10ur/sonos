@@ -32,6 +32,25 @@ func WithLocation(u *url.URL) ServiceOption {
 	}
 }
 
+// Enumerations
+type RecurrenceEnum string
+
+const (
+	Recurrence_ONCE     RecurrenceEnum = "ONCE"
+	Recurrence_WEEKDAYS RecurrenceEnum = "WEEKDAYS"
+	Recurrence_WEEKENDS RecurrenceEnum = "WEEKENDS"
+	Recurrence_DAILY    RecurrenceEnum = "DAILY"
+)
+
+type AlarmPlayModeEnum string
+
+const (
+	AlarmPlayMode_NORMAL           AlarmPlayModeEnum = "NORMAL"
+	AlarmPlayMode_REPEAT_ALL       AlarmPlayModeEnum = "REPEAT_ALL"
+	AlarmPlayMode_SHUFFLE_NOREPEAT AlarmPlayModeEnum = "SHUFFLE_NOREPEAT"
+	AlarmPlayMode_SHUFFLE          AlarmPlayModeEnum = "SHUFFLE"
+)
+
 // State Variables
 type TimeZone string
 type TimeServer string
@@ -530,17 +549,17 @@ func (s *Service) GetTimeNow(args *GetTimeNowArgs) (*GetTimeNowResponse, error) 
 
 // CreateAlarm Argument type.
 type CreateAlarmArgs struct {
-	Xmlns              string `xml:"xmlns:u,attr"`
-	StartLocalTime     string `xml:"StartLocalTime"`
-	Duration           string `xml:"Duration"`
-	Recurrence         string `xml:"Recurrence"`
-	Enabled            bool   `xml:"Enabled"`
-	RoomUUID           string `xml:"RoomUUID"`
-	ProgramURI         string `xml:"ProgramURI"`
-	ProgramMetaData    string `xml:"ProgramMetaData"`
-	PlayMode           string `xml:"PlayMode"`
-	Volume             uint16 `xml:"Volume"`
-	IncludeLinkedZones bool   `xml:"IncludeLinkedZones"`
+	Xmlns              string            `xml:"xmlns:u,attr"`
+	StartLocalTime     string            `xml:"StartLocalTime"`
+	Duration           string            `xml:"Duration"`
+	Recurrence         RecurrenceEnum    `xml:"Recurrence"`
+	Enabled            bool              `xml:"Enabled"`
+	RoomUUID           string            `xml:"RoomUUID"`
+	ProgramURI         string            `xml:"ProgramURI"`
+	ProgramMetaData    string            `xml:"ProgramMetaData"`
+	PlayMode           AlarmPlayModeEnum `xml:"PlayMode"`
+	Volume             uint16            `xml:"Volume"`
+	IncludeLinkedZones bool              `xml:"IncludeLinkedZones"`
 }
 
 // CreateAlarm Response type.
@@ -569,18 +588,18 @@ func (s *Service) CreateAlarm(args *CreateAlarmArgs) (*CreateAlarmResponse, erro
 
 // UpdateAlarm Argument type.
 type UpdateAlarmArgs struct {
-	Xmlns              string `xml:"xmlns:u,attr"`
-	ID                 uint32 `xml:"ID"`
-	StartLocalTime     string `xml:"StartLocalTime"`
-	Duration           string `xml:"Duration"`
-	Recurrence         string `xml:"Recurrence"`
-	Enabled            bool   `xml:"Enabled"`
-	RoomUUID           string `xml:"RoomUUID"`
-	ProgramURI         string `xml:"ProgramURI"`
-	ProgramMetaData    string `xml:"ProgramMetaData"`
-	PlayMode           string `xml:"PlayMode"`
-	Volume             uint16 `xml:"Volume"`
-	IncludeLinkedZones bool   `xml:"IncludeLinkedZones"`
+	Xmlns              string            `xml:"xmlns:u,attr"`
+	ID                 uint32            `xml:"ID"`
+	StartLocalTime     string            `xml:"StartLocalTime"`
+	Duration           string            `xml:"Duration"`
+	Recurrence         RecurrenceEnum    `xml:"Recurrence"`
+	Enabled            bool              `xml:"Enabled"`
+	RoomUUID           string            `xml:"RoomUUID"`
+	ProgramURI         string            `xml:"ProgramURI"`
+	ProgramMetaData    string            `xml:"ProgramMetaData"`
+	PlayMode           AlarmPlayModeEnum `xml:"PlayMode"`
+	Volume             uint16            `xml:"Volume"`
+	IncludeLinkedZones bool              `xml:"IncludeLinkedZones"`
 }
 
 // UpdateAlarm Response type.

@@ -32,6 +32,24 @@ func WithLocation(u *url.URL) ServiceOption {
 	}
 }
 
+// Enumerations
+type ConnectionStatusEnum string
+
+const (
+	ConnectionStatus_OK                    ConnectionStatusEnum = "OK"
+	ConnectionStatus_ContentFormatMismatch ConnectionStatusEnum = "ContentFormatMismatch"
+	ConnectionStatus_InsufficientBandwidth ConnectionStatusEnum = "InsufficientBandwidth"
+	ConnectionStatus_UnreliableChannel     ConnectionStatusEnum = "UnreliableChannel"
+	ConnectionStatus_Unknown               ConnectionStatusEnum = "Unknown"
+)
+
+type DirectionEnum string
+
+const (
+	Direction_Input  DirectionEnum = "Input"
+	Direction_Output DirectionEnum = "Output"
+)
+
 // State Variables
 type SourceProtocolInfo string
 type SinkProtocolInfo string
@@ -228,13 +246,13 @@ type GetCurrentConnectionInfoArgs struct {
 
 // GetCurrentConnectionInfo Response type.
 type GetCurrentConnectionInfoResponse struct {
-	RcsID                 int32  `xml:"RcsID"`
-	AVTransportID         int32  `xml:"AVTransportID"`
-	ProtocolInfo          string `xml:"ProtocolInfo"`
-	PeerConnectionManager string `xml:"PeerConnectionManager"`
-	PeerConnectionID      int32  `xml:"PeerConnectionID"`
-	Direction             string `xml:"Direction"`
-	Status                string `xml:"Status"`
+	RcsID                 int32                `xml:"RcsID"`
+	AVTransportID         int32                `xml:"AVTransportID"`
+	ProtocolInfo          string               `xml:"ProtocolInfo"`
+	PeerConnectionManager string               `xml:"PeerConnectionManager"`
+	PeerConnectionID      int32                `xml:"PeerConnectionID"`
+	Direction             DirectionEnum        `xml:"Direction"`
+	Status                ConnectionStatusEnum `xml:"Status"`
 }
 
 // GetCurrentConnectionInfo calls the GetCurrentConnectionInfo action on the service.

@@ -32,6 +32,8 @@ func WithLocation(u *url.URL) ServiceOption {
 	}
 }
 
+// Enumerations
+
 // State Variables
 type CustomerID string
 type UpdateID uint32
