@@ -29,79 +29,94 @@
 // SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //
 
-// A minimal implementation of the Digital Item Declaration Language (DIDL).
+// Package didl reads and writes DIDL-Lite, the XML that describes tracks,
+// queue items and containers in UPnP AV, e.g. a track's metadata.
 package didl
 
 import (
 	"encoding/xml"
-	"log"
+	"fmt"
+	"slices"
 	"strings"
 )
 
-type didlValidated struct {
-	Extra []xml.Name `xml:",any"`
-}
-
-func (d *didlValidated) Validate() {
-	if 0 < len(d.Extra) {
-		for _, extra := range d.Extra {
-			log.Printf("Missing <Container><%s/>", extra.Local)
-		}
+// Parse parses a DIDL-Lite document, such as the metadata of a track.
+func Parse(raw string) (*Lite, error) {
+	var l Lite
+	if err := xml.Unmarshal([]byte(raw), &l); err != nil {
+		return nil, fmt.Errorf("didl: parsing %q: %w", truncate(raw, 120), err)
 	}
+	return &l, nil
 }
 
-type Album struct {
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
+}
+
+// First returns the value of the first element in texts, or "" if there is
+// none, e.g. didl.First(item.Title).
+func First(texts []Text) string {
+	if len(texts) == 0 {
+		return ""
+	}
+	return texts[0].Value
+}
+
+// Lite is a DIDL-Lite document.
+type Lite struct {
+	XMLName   xml.Name    `json:"-"`
+	Container []Container `xml:"container"`
+	Item      []Item      `xml:"item"`
+}
+
+// Item is a playable object, such as a track or a queue entry.
+type Item struct {
+	XMLName xml.Name `json:"-"`
+	Object
+}
+
+// Container is an object that holds others, such as an album or a playlist.
+type Container struct {
+	XMLName xml.Name `json:"-"`
+	Object
+}
+
+// Object holds the properties shared by items and containers. Each property
+// may appear more than once; First returns the first value.
+type Object struct {
+	ID          string `xml:"id,attr"`
+	ParentID    string `xml:"parentID,attr"`
+	Restricted  bool   `xml:"restricted,attr"`
+	Res         []Res  `xml:"res"`
+	Title       []Text `xml:"http://purl.org/dc/elements/1.1/ title"`
+	Class       []Text `xml:"urn:schemas-upnp-org:metadata-1-0/upnp/ class"`
+	AlbumArtURI []Text `xml:"urn:schemas-upnp-org:metadata-1-0/upnp/ albumArtURI"`
+	Creator     []Text `xml:"http://purl.org/dc/elements/1.1/ creator"`
+	Album       []Text `xml:"urn:schemas-upnp-org:metadata-1-0/upnp/ album"`
+	AlbumArtist []Text `xml:"urn:schemas-rinconnetworks-com:metadata-1-0/ albumArtist"`
+	Desc        []Desc `xml:"desc"`
+}
+
+// Text is a property with a text value, such as dc:title.
+type Text struct {
 	XMLName xml.Name `json:"-"`
 	Value   string   `xml:",chardata"`
 }
 
-type AlbumArtURI struct {
-	XMLName xml.Name `json:"-"`
-	Value   string   `xml:",chardata"`
-}
-
-type Class struct {
-	XMLName xml.Name `json:"-"`
-	Value   string   `xml:",chardata"`
-}
-
-type Creator struct {
-	XMLName xml.Name `json:"-"`
-	Value   string   `xml:",chardata"`
-}
-
-type AlbumArtist struct {
-	XMLName xml.Name `json:"-"`
-	Value   string   `xml:",chardata"`
-}
-
+// Res is a resource of an object: a URI to play it, with its protocol and
+// duration.
 type Res struct {
 	XMLName      xml.Name `json:"-"`
 	ProtocolInfo string   `xml:"protocolInfo,attr"`
 	Duration     string   `xml:"duration,attr"`
 	Value        string   `xml:",chardata"`
 }
-type Title struct {
-	XMLName xml.Name `json:"-"`
-	Value   string   `xml:",chardata"`
-}
 
-type Container struct {
-	XMLName     xml.Name      `json:"-"`
-	ID          string        `xml:"id,attr"`
-	ParentID    string        `xml:"parentID,attr"`
-	Restricted  bool          `xml:"restricted,attr"`
-	Res         []Res         `xml:"res"`
-	Title       []Title       `xml:"http://purl.org/dc/elements/1.1/ title"`
-	Class       []Class       `xml:"urn:schemas-upnp-org:metadata-1-0/upnp/ class"`
-	AlbumArtURI []AlbumArtURI `xml:"urn:schemas-upnp-org:metadata-1-0/upnp/ albumArtURI"`
-	Creator     []Creator     `xml:"http://purl.org/dc/elements/1.1/ creator"`
-	Album       []Album       `xml:"urn:schemas-upnp-org:metadata-1-0/upnp/ album"`
-	AlbumArtist []AlbumArtist `xml:"urn:schemas-rinconnetworks-com:metadata-1-0/ albumArtist"`
-	Desc        []Desc        `xml:"desc"`
-	didlValidated
-}
-
+// Desc is a vendor-specific descriptor, e.g. the account token of a music
+// service.
 type Desc struct {
 	XMLName   xml.Name `json:"-"`
 	ID        string   `xml:"id,attr"`
@@ -109,39 +124,20 @@ type Desc struct {
 	Value     string   `xml:",chardata"`
 }
 
-type Item struct {
-	XMLName     xml.Name      `json:"-"`
-	ID          string        `xml:"id,attr"`
-	ParentID    string        `xml:"parentID,attr"`
-	Restricted  bool          `xml:"restricted,attr"`
-	Res         []Res         `xml:"res"`
-	Title       []Title       `xml:"http://purl.org/dc/elements/1.1/ title"`
-	Class       []Class       `xml:"urn:schemas-upnp-org:metadata-1-0/upnp/ class"`
-	AlbumArtURI []AlbumArtURI `xml:"urn:schemas-upnp-org:metadata-1-0/upnp/ albumArtURI"`
-	Creator     []Creator     `xml:"http://purl.org/dc/elements/1.1/ creator"`
-	Album       []Album       `xml:"urn:schemas-upnp-org:metadata-1-0/upnp/ album"`
-	AlbumArtist []AlbumArtist `xml:"urn:schemas-rinconnetworks-com:metadata-1-0/ albumArtist"`
-	Desc        []Desc        `xml:"desc"`
-	didlValidated
-}
-
-type Lite struct {
-	XMLName   xml.Name    `json:"-"`
-	Container []Container `xml:"container"`
-	Item      []Item      `xml:"item"`
-	didlValidated
-}
-
 const emptyDocument = "<DIDL-Lite xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\"></DIDL-Lite>"
 
+// EmptyDocument returns a DIDL-Lite document without objects, for actions
+// that take metadata when there is none.
 func EmptyDocument() string {
 	return emptyDocument
 }
 
+// EmptyDocuments returns num empty documents separated by spaces, as
+// AddMultipleURIsToQueue expects for items without metadata. It returns ""
+// for num <= 0.
 func EmptyDocuments(num int) string {
-	var docs string
-	for i := 0; i < num; i++ {
-		docs = strings.Join([]string{docs, emptyDocument}, " ")
+	if num <= 0 {
+		return ""
 	}
-	return docs
+	return strings.Join(slices.Repeat([]string{emptyDocument}, num), " ")
 }

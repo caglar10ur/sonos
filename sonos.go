@@ -2,347 +2,413 @@ package sonos
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
-	"net/url"
+	"strings"
 	"sync"
 	"time"
 )
 
-type FoundZonePlayerFunc func(*Sonos, *ZonePlayer)
-type EventHandlerFunc func(interface{})
+const (
+	// maxEventSize caps the body of an incoming NOTIFY. ZoneGroupState events
+	// for large households are the biggest and stay well below this.
+	maxEventSize = 4 << 20
 
+	// closeTimeout bounds the best-effort unsubscribe calls made by Close.
+	closeTimeout = 5 * time.Second
+
+	// maxParallelSetups bounds how many players a search sets up at once.
+	maxParallelSetups = 8
+)
+
+// searchResends are when the M-SEARCH is sent again after the first time:
+// SSDP runs over UDP, which may drop it or the answers.
+var searchResends = []time.Duration{250 * time.Millisecond, time.Second}
+
+var searchAddrs = []string{"239.255.255.250:1900", "255.255.255.255:1900"}
+
+// https://svrooij.io/sonos-api-docs/sonos-communication.html#auto-discovery
+// MX should be set to use timeout value in integer seconds
+var searchPacket = []byte("M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 1\r\nST: urn:schemas-upnp-org:device:ZonePlayer:1\r\n\r\n")
+
+// Sonos discovers players on the local network and receives the events of
+// subscriptions made through it. Call Close when done.
 type Sonos struct {
-	udpListener *net.UDPConn
-	tcpListener net.Listener
+	listener net.Listener
+	server   *http.Server
+	client   *http.Client
+	logger   *slog.Logger
 
-	// map of coordinators
-	zonePlayers sync.Map
-	// map of subscription ids to event handler function
-	subscriptions sync.Map
+	// ctx is cancelled by Close; searches and auto-renewal stop with it.
+	ctx       context.Context
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
+	closeOnce sync.Once
+	closeErr  error
+
+	mu     sync.Mutex
+	closed bool // set by Close; guards wg.Add against wg.Wait
+	// subs maps the callback token embedded in each subscription's CALLBACK
+	// URL to the subscription. Tokens are registered before SUBSCRIBE is
+	// sent, so even the first event (which can beat the response) is routed.
+	subs map[string]*Subscription
 }
 
-type SubscriptionOptions struct {
-	ZonePlayer *ZonePlayer
-	Service    SonosService
-	Timeout    uint64
-
-	EventHandler EventHandlerFunc
-
-	Sid string
+type options struct {
+	listenAddr string
+	client     *http.Client
+	logger     *slog.Logger
 }
 
-func (o *SubscriptionOptions) Validate() error {
-	if o.ZonePlayer == nil {
-		return fmt.Errorf("missing ZonePlayer")
-	}
-	if o.Service == nil {
-		return fmt.Errorf("missing Service")
-	}
+// Option configures a Sonos.
+type Option func(*options)
 
-	if o.Service.EventEndpoint().Path == "/QPlay/Event" {
-		return fmt.Errorf("not supported Service")
-	}
-	if o.Timeout == 0 {
-		o.Timeout = 86400
-	}
-	return nil
+// WithListenAddr sets the address the event listener binds to.
+// The default is ":0": every interface, on a random port.
+func WithListenAddr(addr string) Option {
+	return func(o *options) { o.listenAddr = addr }
 }
 
-func (o *SubscriptionOptions) SetSid(sid string) {
-	o.Sid = sid
+// WithHTTPClient sets the HTTP client used for subscriptions and for the
+// players found by Search. The default has a 15 second timeout.
+func WithHTTPClient(c *http.Client) Option {
+	return func(o *options) { o.client = c }
 }
 
-func NewSonos() (*Sonos, error) {
-	// Create listener for M-SEARCH
-	udpListener, err := net.ListenUDP("udp", &net.UDPAddr{IP: []byte{0, 0, 0, 0}, Port: 0, Zone: ""})
+// WithLogger sets where the library logs problems it can't return as
+// errors, such as a failed auto-renewal. The default discards them.
+func WithLogger(l *slog.Logger) Option {
+	return func(o *options) { o.logger = l }
+}
+
+// New starts the event listener and returns a Sonos.
+func New(opts ...Option) (*Sonos, error) {
+	o := options{
+		listenAddr: ":0",
+		client:     &http.Client{Timeout: 15 * time.Second},
+		logger:     slog.New(slog.DiscardHandler),
+	}
+	for _, opt := range opts {
+		opt(&o)
+	}
+
+	listener, err := net.Listen("tcp", o.listenAddr)
 	if err != nil {
 		return nil, err
 	}
 
-	// create listener for events
-	tcpListener, err := net.Listen("tcp", ":0")
-	if err != nil {
-		return nil, err
-	}
-
+	ctx, cancel := context.WithCancel(context.Background())
 	s := &Sonos{
-		udpListener: udpListener,
-		tcpListener: tcpListener,
+		listener: listener,
+		client:   o.client,
+		logger:   o.logger,
+		ctx:      ctx,
+		cancel:   cancel,
+		subs:     make(map[string]*Subscription),
+	}
+	s.server = &http.Server{
+		Handler:           s,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		ErrorLog:          slog.NewLogLogger(o.logger.Handler(), slog.LevelWarn),
 	}
 
 	go func() {
-		http.Serve(s.tcpListener, s)
+		if err := s.server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			s.logger.Error("sonos: event listener stopped", "err", err)
+		}
 	}()
 
 	return s, nil
 }
 
-func (s *Sonos) Close() {
-	s.udpListener.Close()
-	s.tcpListener.Close()
-}
+// Close stops searches and auto-renewal, makes a best-effort attempt to
+// unsubscribe every active subscription (ending it with ErrClosed), and
+// stops the event listener.
+// It is safe to call more than once.
+func (s *Sonos) Close() error {
+	s.closeOnce.Do(func() {
+		s.mu.Lock()
+		s.closed = true
+		s.mu.Unlock()
+		s.cancel()
+		s.wg.Wait()
 
-func (s *Sonos) Search(ctx context.Context, fn FoundZonePlayerFunc) error {
-	go func(ctx context.Context) {
-		for {
-			if ctx.Err() != nil {
-				break
-			}
-			response, err := http.ReadResponse(bufio.NewReader(s.udpListener), nil)
-			if err != nil {
-				continue
-			}
+		s.mu.Lock()
+		subs := make([]*Subscription, 0, len(s.subs))
+		for _, sub := range s.subs {
+			subs = append(subs, sub)
+		}
+		s.mu.Unlock()
 
-			location, err := FromLocation(response.Header.Get("Location"))
-			if err != nil {
-				continue
-			}
-			zp, err := NewZonePlayer(WithLocation(location))
-			if err != nil {
-				continue
-			}
-			if zp.IsCoordinator() {
-				zp, loaded := s.zonePlayers.LoadOrStore(zp.SerialNumber(), zp)
-				if !loaded {
-					fn(s, zp.(*ZonePlayer))
+		ctx, cancel := context.WithTimeout(context.Background(), closeTimeout)
+		var wg sync.WaitGroup
+		for _, sub := range subs {
+			wg.Go(func() {
+				sid := sub.SID()
+				if err := sub.unsubscribe(ctx); err != nil {
+					s.logger.Warn("sonos: unsubscribe on close failed", "sid", sid, "err", err)
 				}
+				sub.finish(ErrClosed)
+			})
+		}
+		wg.Wait()
+		cancel()
+
+		s.closeErr = s.server.Close()
+	})
+	return s.closeErr
+}
+
+// Search sends an SSDP discovery request and calls fn once for every group
+// coordinator that answers, until ctx is done. Each call uses its own
+// socket, so concurrent or repeated searches don't interfere. fn is called
+// from one goroutine at a time, and not after Close returns; it must not
+// call Close itself.
+func (s *Sonos) Search(ctx context.Context, fn func(*ZonePlayer)) error {
+	return s.search(ctx, true, fn)
+}
+
+// search is Search, optionally reporting every player instead of only the
+// group coordinators.
+func (s *Sonos) search(ctx context.Context, coordinatorsOnly bool, fn func(*ZonePlayer)) error {
+	s.mu.Lock()
+	defer s.mu.Unlock() // held until the goroutines are added to s.wg
+	if s.closed {
+		return ErrClosed
+	}
+
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero})
+	if err != nil {
+		return err
+	}
+	if err := sendSearch(conn); err != nil {
+		conn.Close()
+		return err
+	}
+
+	// Stop when the caller's ctx is done or the Sonos is closed; closing the
+	// socket unblocks the pending read.
+	ctx, cancel := context.WithCancel(ctx)
+	stopOnClose := context.AfterFunc(s.ctx, cancel)
+	stopConn := context.AfterFunc(ctx, func() { conn.Close() })
+
+	// Close waits for these, so fn isn't called after Close returns.
+	s.wg.Go(func() {
+		for _, at := range searchResends {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(at):
 			}
-		}
-	}(ctx)
-
-	// https://svrooij.io/sonos-api-docs/sonos-communication.html#auto-discovery
-	// MX should be set to use timeout value in integer seconds
-	pkt := []byte("M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: \"ssdp:discover\"\r\nMX: 1\r\nST: urn:schemas-upnp-org:device:ZonePlayer:1\r\n\r\n")
-	for _, bcastaddr := range []string{"239.255.255.250:1900", "255.255.255.255:1900"} {
-		bcast, err := net.ResolveUDPAddr("udp", bcastaddr)
-		if err != nil {
-			return err
-		}
-		_, err = s.udpListener.WriteTo(pkt, bcast)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (s *Sonos) Register(zp *ZonePlayer) error {
-	if zp.IsCoordinator() {
-		_, loaded := s.zonePlayers.LoadOrStore(zp.SerialNumber(), zp)
-		if loaded {
-			return fmt.Errorf("ZonePlayer already registered")
-		}
-		return nil
-	}
-	return fmt.Errorf("ZonePlayer is not coordinator")
-}
-
-func (s *Sonos) FindRoom(ctx context.Context, room string) (*ZonePlayer, error) {
-	c := make(chan *ZonePlayer)
-	defer close(c)
-
-	s.Search(ctx, func(s *Sonos, zp *ZonePlayer) {
-		if zp.RoomName() == room {
-			c <- zp
+			_ = sendSearch(conn) // the first send succeeded; this is a bonus
 		}
 	})
+	s.wg.Go(func() {
+		defer stopConn()
+		defer stopOnClose()
+		defer cancel()
+		defer conn.Close()
+		s.readSearchResponses(ctx, conn, coordinatorsOnly, fn)
+	})
+
+	return nil
+}
+
+func sendSearch(conn *net.UDPConn) error {
+	for _, addr := range searchAddrs {
+		dst, err := net.ResolveUDPAddr("udp4", addr)
+		if err != nil {
+			return err
+		}
+		if _, err := conn.WriteTo(searchPacket, dst); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Sonos) readSearchResponses(ctx context.Context, conn *net.UDPConn, coordinatorsOnly bool, fn func(*ZonePlayer)) {
+	// Players answer every M-SEARCH, on both addresses, so skip locations
+	// this search has already handled before fetching anything.
+	seen := make(map[string]bool)
+	buf := make([]byte, 64<<10)
+
+	// Setting a player up takes a request or two, so do it in parallel and
+	// only serialize the calls to fn.
+	var (
+		wg   sync.WaitGroup
+		fnMu sync.Mutex
+		sem  = make(chan struct{}, maxParallelSetups)
+
+		// The topology names every coordinator, so one fetch per search
+		// answers for every player that replies.
+		topoMu       sync.Mutex
+		coordinators map[string]bool
+	)
+	defer wg.Wait()
+	isCoordinator := func(zp *ZonePlayer) (bool, error) {
+		topoMu.Lock()
+		defer topoMu.Unlock()
+		if coordinators == nil {
+			state, err := zp.ZoneGroupState(ctx)
+			if err != nil {
+				return false, err
+			}
+			coordinators = make(map[string]bool)
+			for _, zg := range state.ZoneGroups {
+				coordinators[zg.Coordinator] = true
+			}
+		}
+		return coordinators[zp.UUID()], nil
+	}
 
 	for {
+		n, _, err := conn.ReadFromUDP(buf)
+		if err != nil {
+			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
+				return
+			}
+			// e.g. "no route to host" when the OS blocks local network access
+			s.logger.Debug("sonos: reading search response", "err", err)
+			continue
+		}
+
+		response, err := http.ReadResponse(bufio.NewReader(bytes.NewReader(buf[:n])), nil)
+		if err != nil {
+			continue
+		}
+		response.Body.Close()
+
+		loc := response.Header.Get("Location")
+		if loc == "" || seen[loc] {
+			continue
+		}
+		seen[loc] = true
+
+		wg.Go(func() {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			zp, err := playerAt(ctx, loc, s.client)
+			if err != nil {
+				s.logger.Debug("sonos: skipping device", "location", loc, "err", err)
+				return
+			}
+			if coordinatorsOnly {
+				if ok, err := isCoordinator(zp); err != nil || !ok {
+					return
+				}
+			}
+			fnMu.Lock()
+			defer fnMu.Unlock()
+			if ctx.Err() == nil {
+				fn(zp)
+			}
+		})
+	}
+}
+
+// firstPlayer returns the first player that answers a search.
+func (s *Sonos) firstPlayer(ctx context.Context) (*ZonePlayer, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	found := make(chan *ZonePlayer, 1) // buffered: fn may run once more after we return
+	err := s.search(ctx, false, func(zp *ZonePlayer) {
 		select {
-		case <-ctx.Done():
-			return nil, errors.New("timeout")
-		case zp := <-c:
-			return zp, nil
+		case found <- zp:
+		default:
 		}
+	})
+	if err != nil {
+		return nil, err
+	}
+	select {
+	case zp := <-found:
+		return zp, nil
+	case <-s.ctx.Done():
+		return nil, ErrClosed
+	case <-ctx.Done():
+		return nil, fmt.Errorf("no player answered: %w", ctx.Err())
 	}
 }
 
-func (s *Sonos) Subscribe(ctx context.Context, opts *SubscriptionOptions) (string, error) {
-	conn, err := net.Dial("tcp", opts.Service.EventEndpoint().Host)
-	if err != nil {
-		return "", err
-	}
-	defer conn.Close()
-
-	host := fmt.Sprintf("%s:%d", conn.LocalAddr().(*net.TCPAddr).IP.String(), s.tcpListener.Addr().(*net.TCPAddr).Port)
-
-	calbackUrl := url.URL{
-		Scheme:   "http",
-		Host:     host,
-		RawQuery: "sn=" + opts.ZonePlayer.SerialNumber(),
-		Path:     opts.Service.EventEndpoint().Path,
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "SUBSCRIBE", opts.Service.EventEndpoint().String(), nil)
-	if err != nil {
-		return "", err
-	}
-
-	req.Header.Add("HOST", opts.Service.EventEndpoint().Host)
-	req.Header.Add("CALLBACK", fmt.Sprintf("<%s>", calbackUrl.String()))
-	req.Header.Add("NT", "upnp:event")
-	req.Header.Add("TIMEOUT", fmt.Sprintf("Second-%d", opts.Timeout))
-
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer res.Body.Close()
-
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return "", err
-	}
-
-	if res.StatusCode != http.StatusOK {
-		return "", errors.New(string(body))
-	}
-	sid := res.Header.Get("sid")
-
-	// Add the sid to the subscriptions
-	s.subscriptions.LoadOrStore(sid, opts.EventHandler)
-
-	return sid, nil
+func (s *Sonos) register(token string, sub *Subscription) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.subs[token] = sub
 }
 
-func (s *Sonos) Renew(ctx context.Context, opts *SubscriptionOptions) error {
-	req, err := http.NewRequestWithContext(ctx, "SUBSCRIBE", opts.Service.EventEndpoint().String(), nil)
-	if err != nil {
-		return err
-	}
-
-	req.Header.Add("HOST", opts.Service.EventEndpoint().Host)
-	req.Header.Add("SID", opts.Sid)
-	req.Header.Add("TIMEOUT", fmt.Sprintf("Second-%d", opts.Timeout))
-
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-
-	defer res.Body.Close()
-
-	body, err := io.ReadAll(res.Body)
-
-	if err != nil {
-		return err
-	}
-
-	if res.StatusCode != http.StatusOK {
-		return errors.New(string(body))
-	}
-
-	return nil
+func (s *Sonos) unregister(token string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.subs, token)
 }
 
-func (s *Sonos) Unsubscribe(ctx context.Context, opts *SubscriptionOptions) error {
-	req, err := http.NewRequestWithContext(ctx, "UNSUBSCRIBE", opts.Service.EventEndpoint().String(), nil)
-	if err != nil {
-		return err
-	}
+// ServeHTTP receives event notifications (NOTIFY) from devices and passes
+// them to the matching subscription's handler.
+func (s *Sonos) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
 
-	req.Header.Add("HOST", opts.Service.EventEndpoint().Host)
-	req.Header.Add("SID", opts.Sid)
-
-	res, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-
-	defer res.Body.Close()
-
-	body, err := io.ReadAll(res.Body)
-
-	if err != nil {
-		return err
-	}
-
-	if res.StatusCode != http.StatusOK {
-		return errors.New(string(body))
-	}
-
-	return nil
-}
-
-func (s *Sonos) ServeHTTP(response http.ResponseWriter, request *http.Request) {
-	defer request.Body.Close()
-
-	query := request.URL.Query()
-	sn, ok := query["sn"]
-	if !ok {
-		response.WriteHeader(http.StatusNotFound)
+	if r.Method != "NOTIFY" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
 
-	p, ok := s.zonePlayers.Load(sn[0])
-	if !ok {
-		response.WriteHeader(http.StatusNotFound)
+	token, _, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/"), "/")
+	s.mu.Lock()
+	sub := s.subs[token]
+	s.mu.Unlock()
+	if sub == nil {
+		// Per UPnP, 412 tells the device this subscription is unknown and
+		// makes it stop sending events for it.
+		w.WriteHeader(http.StatusPreconditionFailed)
 		return
 	}
-	zp := p.(*ZonePlayer)
 
-	data, err := io.ReadAll(request.Body)
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxEventSize))
 	if err != nil {
-		response.WriteHeader(http.StatusInternalServerError)
+		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	var events []interface{}
-	switch request.URL.Path {
-	case zp.AlarmClock.EventEndpoint().Path:
-		events = zp.AlarmClock.ParseEvent(data)
-	case zp.AudioIn.EventEndpoint().Path:
-		events = zp.AudioIn.ParseEvent(data)
-	case zp.AVTransport.EventEndpoint().Path:
-		events = zp.AVTransport.ParseEvent(data)
-	case zp.ConnectionManager.EventEndpoint().Path:
-		events = zp.ConnectionManager.ParseEvent(data)
-	case zp.ContentDirectory.EventEndpoint().Path:
-		events = zp.ContentDirectory.ParseEvent(data)
-	case zp.DeviceProperties.EventEndpoint().Path:
-		events = zp.DeviceProperties.ParseEvent(data)
-	case zp.GroupManagement.EventEndpoint().Path:
-		events = zp.GroupManagement.ParseEvent(data)
-	case zp.GroupRenderingControl.EventEndpoint().Path:
-		events = zp.GroupRenderingControl.ParseEvent(data)
-	case zp.MusicServices.EventEndpoint().Path:
-		events = zp.MusicServices.ParseEvent(data)
-	case zp.QPlay.EventEndpoint().Path:
-		events = zp.QPlay.ParseEvent(data)
-	case zp.Queue.EventEndpoint().Path:
-		events = zp.Queue.ParseEvent(data)
-	case zp.RenderingControl.EventEndpoint().Path:
-		events = zp.RenderingControl.ParseEvent(data)
-	case zp.SystemProperties.EventEndpoint().Path:
-		events = zp.SystemProperties.ParseEvent(data)
-	case zp.VirtualLineIn.EventEndpoint().Path:
-		events = zp.VirtualLineIn.ParseEvent(data)
-	case zp.ZoneGroupTopology.EventEndpoint().Path:
-		events = zp.ZoneGroupTopology.ParseEvent(data)
+	// Take this event's place in the subscription's queue before
+	// acknowledging it: the device only sends the next event after the
+	// acknowledgement, so the queue keeps them in order.
+	prev, done := sub.queueEvent()
+	defer done()
+
+	// Acknowledge before running handlers so a slow handler doesn't make the
+	// device time out. Without the flush, net/http would hold the status
+	// line until this function returns. Connection: close keeps the device
+	// from sending its next event on this connection, which isn't read
+	// again until the handlers return.
+	w.Header().Set("Content-Length", "0")
+	w.Header().Set("Connection", "close")
+	w.WriteHeader(http.StatusOK)
+	if f, ok := w.(http.Flusher); ok {
+		f.Flush()
 	}
 
-	sid := request.Header.Get("sid")
-	seq := request.Header.Get("seq")
-
-	// Response to the Subscription request comes before Subscription calls reads the sid
-	// give it a second and try again for the first update, if this won't work well enough a channel to syncronize could work.
-	fn, ok := s.subscriptions.Load(sid)
-	if !ok && seq == "0" {
-		time.Sleep(1 * time.Second)
-
-		fn, ok = s.subscriptions.Load(sid)
-		if !ok {
-			fn = func(evt interface{}) {}
-		}
+	// ParseEvent returns what it could decode alongside err, so deliver that.
+	events, err := sub.svc.ParseEvent(data)
+	if err != nil {
+		s.logger.Warn("sonos: dropping malformed event data", "sid", r.Header.Get("SID"), "err", err)
 	}
-
+	<-prev
 	for _, evt := range events {
-		zp.Event(evt, fn.(EventHandlerFunc))
+		if sub.raw {
+			sub.handler(evt)
+		} else {
+			s.dispatch(evt, sub.handler)
+		}
 	}
-	response.WriteHeader(http.StatusOK)
 }

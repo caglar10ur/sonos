@@ -179,6 +179,10 @@
       <dataType>boolean</dataType>
     </stateVariable>
     <stateVariable sendEvents="yes">
+      <name>ConnectionType</name>
+      <dataType>ui4</dataType>
+    </stateVariable>
+    <stateVariable sendEvents="yes">
       <name>HasConfiguredSSID</name>
       <dataType>boolean</dataType>
     </stateVariable>
@@ -233,6 +237,14 @@
     <stateVariable sendEvents="yes">
       <name>MicEnabled</name>
       <dataType>ui4</dataType>
+    </stateVariable>
+    <stateVariable sendEvents="yes">
+      <name>SvcActive</name>
+      <dataType>boolean</dataType>
+    </stateVariable>
+    <stateVariable sendEvents="yes">
+      <name>AlexaCBLSupported</name>
+      <dataType>boolean</dataType>
     </stateVariable>
     <stateVariable sendEvents="no">
       <name>KeepGrouped</name>

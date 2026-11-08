@@ -373,6 +373,10 @@
       <name>A_ARG_TYPE_TrackList</name>
       <dataType>string</dataType>
     </stateVariable>
+    <stateVariable sendEvents="no">
+      <name>A_ARG_TYPE_RestartSink</name>
+      <dataType>boolean</dataType>
+    </stateVariable>
   </serviceStateTable>
   <actionList>
     <action>
@@ -1322,6 +1326,11 @@
           <name>CurrentAVTransportURI</name>
           <direction>in</direction>
           <relatedStateVariable>A_ARG_TYPE_CurrentAVTransportURI</relatedStateVariable>
+        </argument>
+        <argument>
+          <name>RestartSink</name>
+          <direction>in</direction>
+          <relatedStateVariable>A_ARG_TYPE_RestartSink</relatedStateVariable>
         </argument>
       </argumentList>
     </action>

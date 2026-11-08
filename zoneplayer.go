@@ -1,45 +1,45 @@
 package sonos
 
 import (
+	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/caglar10ur/sonos/didl"
-	avt "github.com/caglar10ur/sonos/services/AVTransport"
-	clk "github.com/caglar10ur/sonos/services/AlarmClock"
-	ain "github.com/caglar10ur/sonos/services/AudioIn"
-	con "github.com/caglar10ur/sonos/services/ConnectionManager"
-	dir "github.com/caglar10ur/sonos/services/ContentDirectory"
-	dev "github.com/caglar10ur/sonos/services/DeviceProperties"
-	gmn "github.com/caglar10ur/sonos/services/GroupManagement"
-	rcg "github.com/caglar10ur/sonos/services/GroupRenderingControl"
-	mus "github.com/caglar10ur/sonos/services/MusicServices"
-	ply "github.com/caglar10ur/sonos/services/QPlay"
-	que "github.com/caglar10ur/sonos/services/Queue"
-	ren "github.com/caglar10ur/sonos/services/RenderingControl"
-	sys "github.com/caglar10ur/sonos/services/SystemProperties"
-	vli "github.com/caglar10ur/sonos/services/VirtualLineIn"
-	zgt "github.com/caglar10ur/sonos/services/ZoneGroupTopology"
+	clk "github.com/caglar10ur/sonos/services/alarmclock"
+	ain "github.com/caglar10ur/sonos/services/audioin"
+	avt "github.com/caglar10ur/sonos/services/avtransport"
+	con "github.com/caglar10ur/sonos/services/connectionmanager"
+	dir "github.com/caglar10ur/sonos/services/contentdirectory"
+	dev "github.com/caglar10ur/sonos/services/deviceproperties"
+	gmn "github.com/caglar10ur/sonos/services/groupmanagement"
+	rcg "github.com/caglar10ur/sonos/services/grouprenderingcontrol"
+	mus "github.com/caglar10ur/sonos/services/musicservices"
+	ply "github.com/caglar10ur/sonos/services/qplay"
+	que "github.com/caglar10ur/sonos/services/queue"
+	ren "github.com/caglar10ur/sonos/services/renderingcontrol"
+	sys "github.com/caglar10ur/sonos/services/systemproperties"
+	vli "github.com/caglar10ur/sonos/services/virtuallinein"
+	zgt "github.com/caglar10ur/sonos/services/zonegrouptopology"
 )
 
-type SonosService interface {
-	ControlEndpoint() *url.URL
-	EventEndpoint() *url.URL
-	ParseEvent([]byte) []interface{}
-}
-
+// SpecVersion is the UPnP version a device description follows.
 type SpecVersion struct {
 	XMLName xml.Name `xml:"specVersion"`
 	Major   int      `xml:"major"`
 	Minor   int      `xml:"minor"`
 }
 
-type Service struct {
+// DeviceService is a UPnP service listed in a device description.
+type DeviceService struct {
 	XMLName     xml.Name `xml:"service"`
 	ServiceType string   `xml:"serviceType"`
 	ServiceID   string   `xml:"serviceId"`
@@ -48,679 +48,332 @@ type Service struct {
 	SCPDURL     string   `xml:"SCPDURL"`
 }
 
-type Icon struct {
+// DeviceIcon is an icon listed in a device description. URL is relative to
+// the description's location.
+type DeviceIcon struct {
 	XMLName  xml.Name `xml:"icon"`
 	ID       string   `xml:"id"`
 	Mimetype string   `xml:"mimetype"`
 	Width    int      `xml:"width"`
 	Height   int      `xml:"height"`
 	Depth    int      `xml:"depth"`
-	URL      url.URL  `xml:"url"`
+	URL      string   `xml:"url"`
 }
 
+// Device is the <device> element of a device description. A player
+// describes itself and, in Devices, its media renderer and media server.
 type Device struct {
-	XMLName                 xml.Name  `xml:"device"`
-	DeviceType              string    `xml:"deviceType"`
-	FriendlyName            string    `xml:"friendlyName"`
-	Manufacturer            string    `xml:"manufacturer"`
-	ManufacturerURL         string    `xml:"manufacturerURL"`
-	ModelNumber             string    `xml:"modelNumber"`
-	ModelDescription        string    `xml:"modelDescription"`
-	ModelName               string    `xml:"modelName"`
-	ModelURL                string    `xml:"modelURL"`
-	SoftwareVersion         string    `xml:"softwareVersion"`
-	SwGen                   string    `xml:"swGen"`
-	HardwareVersion         string    `xml:"hardwareVersion"`
-	SerialNum               string    `xml:"serialNum"`
-	MACAddress              string    `xml:"MACAddress"`
-	UDN                     string    `xml:"UDN"`
-	Icons                   []Icon    `xml:"iconList>icon"`
-	MinCompatibleVersion    string    `xml:"minCompatibleVersion"`
-	LegacyCompatibleVersion string    `xml:"legacyCompatibleVersion"`
-	APIVersion              string    `xml:"apiVersion"`
-	MinAPIVersion           string    `xml:"minApiVersion"`
-	DisplayVersion          string    `xml:"displayVersion"`
-	ExtraVersion            string    `xml:"extraVersion"`
-	RoomName                string    `xml:"roomName"`
-	DisplayName             string    `xml:"displayName"`
-	ZoneType                int       `xml:"zoneType"`
-	Feature1                string    `xml:"feature1"`
-	Feature2                string    `xml:"feature2"`
-	Feature3                string    `xml:"feature3"`
-	Seriesid                string    `xml:"seriesid"`
-	Variant                 int       `xml:"variant"`
-	InternalSpeakerSize     float32   `xml:"internalSpeakerSize"`
-	BassExtension           float32   `xml:"bassExtension"`
-	SatGainOffset           float32   `xml:"satGainOffset"`
-	Memory                  int       `xml:"memory"`
-	Flash                   int       `xml:"flash"`
-	FlashRepartitioned      int       `xml:"flashRepartitioned"`
-	AmpOnTime               int       `xml:"ampOnTime"`
-	RetailMode              int       `xml:"retailMode"`
-	Services                []Service `xml:"serviceList>service"`
-	Devices                 []Device  `xml:"deviceList>device"`
+	XMLName                 xml.Name        `xml:"device"`
+	DeviceType              string          `xml:"deviceType"`
+	FriendlyName            string          `xml:"friendlyName"`
+	Manufacturer            string          `xml:"manufacturer"`
+	ManufacturerURL         string          `xml:"manufacturerURL"`
+	ModelNumber             string          `xml:"modelNumber"`
+	ModelDescription        string          `xml:"modelDescription"`
+	ModelName               string          `xml:"modelName"`
+	ModelURL                string          `xml:"modelURL"`
+	SoftwareVersion         string          `xml:"softwareVersion"`
+	SwGen                   string          `xml:"swGen"`
+	HardwareVersion         string          `xml:"hardwareVersion"`
+	SerialNum               string          `xml:"serialNum"`
+	MACAddress              string          `xml:"MACAddress"`
+	UDN                     string          `xml:"UDN"`
+	Icons                   []DeviceIcon    `xml:"iconList>icon"`
+	MinCompatibleVersion    string          `xml:"minCompatibleVersion"`
+	LegacyCompatibleVersion string          `xml:"legacyCompatibleVersion"`
+	APIVersion              string          `xml:"apiVersion"`
+	MinAPIVersion           string          `xml:"minApiVersion"`
+	DisplayVersion          string          `xml:"displayVersion"`
+	ExtraVersion            string          `xml:"extraVersion"`
+	RoomName                string          `xml:"roomName"`
+	DisplayName             string          `xml:"displayName"`
+	ZoneType                int             `xml:"zoneType"`
+	Feature1                string          `xml:"feature1"`
+	Feature2                string          `xml:"feature2"`
+	Feature3                string          `xml:"feature3"`
+	Seriesid                string          `xml:"seriesid"`
+	Variant                 int             `xml:"variant"`
+	InternalSpeakerSize     float32         `xml:"internalSpeakerSize"`
+	BassExtension           float32         `xml:"bassExtension"`
+	SatGainOffset           float32         `xml:"satGainOffset"`
+	Memory                  int             `xml:"memory"`
+	Flash                   int             `xml:"flash"`
+	FlashRepartitioned      int             `xml:"flashRepartitioned"`
+	AmpOnTime               int             `xml:"ampOnTime"`
+	RetailMode              int             `xml:"retailMode"`
+	Services                []DeviceService `xml:"serviceList>service"`
+	Devices                 []Device        `xml:"deviceList>device"`
 }
 
-type Root struct {
+// DeviceDescription is a player's UPnP device description, the document at
+// its location (see FromEndpoint).
+type DeviceDescription struct {
 	XMLName     xml.Name    `xml:"root"`
 	Xmlns       string      `xml:"xmlns,attr"`
 	SpecVersion SpecVersion `xml:"specVersion"`
 	Device      Device      `xml:"device"`
 }
 
+// ZonePlayerOption configures a ZonePlayer.
 type ZonePlayerOption func(*ZonePlayer)
 
+// WithClient sets the HTTP client used to talk to the player.
+// The default has a 10 second timeout.
 func WithClient(c *http.Client) ZonePlayerOption {
 	return func(z *ZonePlayer) {
 		z.client = c
 	}
 }
 
-func WithLocation(u *url.URL) ZonePlayerOption {
-	return func(z *ZonePlayer) {
-		z.location = u
-	}
+// FromEndpoint returns the device description URL of the player at host
+// (an IP address or name, without a port).
+func FromEndpoint(host string) (*url.URL, error) {
+	return url.Parse("http://" + net.JoinHostPort(host, "1400") + "/xml/device_description.xml")
 }
 
-func FromEndpoint(endpoint string) (*url.URL, error) {
-	return url.Parse(fmt.Sprintf("http://%s:1400/xml/device_description.xml", endpoint))
-}
+// coordinatorCacheTTL controls how long the IsCoordinator result is reused
+// before a fresh GetZoneGroupState call is made.
+const coordinatorCacheTTL = 30 * time.Second
 
-func FromLocation(location string) (*url.URL, error) {
-	return url.Parse(location)
-}
-
+// ZonePlayer is one Sonos player. The embedded Services give access to
+// every UPnP action; its methods cover what belongs to the player itself.
+// For rooms and groups, and playback, see Household.
 type ZonePlayer struct {
-	Root *Root
+	Description *DeviceDescription
 
 	client *http.Client
 	// A URL that can be queried for device capabilities
 	location *url.URL
 
+	coordinatorMu    sync.Mutex
+	coordinatorVal   bool
+	coordinatorExpAt time.Time
+
 	*Services
 }
 
+// Services are the UPnP services of a player.
 type Services struct {
-	// services
-	AlarmClock            *clk.Service
-	AudioIn               *ain.Service
-	AVTransport           *avt.Service
-	ConnectionManager     *con.Service
-	ContentDirectory      *dir.Service
-	DeviceProperties      *dev.Service
-	GroupManagement       *gmn.Service
-	GroupRenderingControl *rcg.Service
-	MusicServices         *mus.Service
-	QPlay                 *ply.Service
-	Queue                 *que.Service
-	RenderingControl      *ren.Service
-	SystemProperties      *sys.Service
-	VirtualLineIn         *vli.Service
-	ZoneGroupTopology     *zgt.Service
+	AlarmClock  *clk.Service
+	AudioIn     *ain.Service
+	AVTransport *avt.Service
+	// ConnectionManager is the MediaRenderer's connection manager.
+	ConnectionManager *con.Service
+	// MediaServerConnectionManager is the MediaServer's connection manager.
+	MediaServerConnectionManager *con.Service
+	ContentDirectory             *dir.Service
+	DeviceProperties             *dev.Service
+	GroupManagement              *gmn.Service
+	GroupRenderingControl        *rcg.Service
+	MusicServices                *mus.Service
+	QPlay                        *ply.Service
+	Queue                        *que.Service
+	RenderingControl             *ren.Service
+	SystemProperties             *sys.Service
+	VirtualLineIn                *vli.Service
+	ZoneGroupTopology            *zgt.Service
 }
 
-// NewZonePlayer returns a new ZonePlayer instance.
-func NewZonePlayer(opts ...ZonePlayerOption) (*ZonePlayer, error) {
-	zp := &ZonePlayer{
-		Root: &Root{},
-		client: &http.Client{
-			Timeout: 10 * time.Second,
-		},
+// NewZonePlayer fetches the device description at location (see
+// FromEndpoint) and returns the player it describes.
+func NewZonePlayer(ctx context.Context, location *url.URL, opts ...ZonePlayerOption) (*ZonePlayer, error) {
+	if location == nil {
+		return nil, errors.New("sonos: nil location")
 	}
-
-	// Loop through each option
+	zp := &ZonePlayer{
+		Description: &DeviceDescription{},
+		client:      &http.Client{Timeout: 10 * time.Second},
+		location:    location,
+	}
 	for _, opt := range opts {
-		// Call the option giving the instantiated *ZonePlayer as the argument
 		opt(zp)
 	}
 
-	if zp.location == nil {
-		return nil, fmt.Errorf("empty location")
-	}
-
-	resp, err := zp.client.Get(zp.location.String())
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, location.String(), nil)
 	if err != nil {
 		return nil, err
+	}
+	resp, err := zp.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("sonos: fetching %s: %s", location, resp.Status)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-
-	err = xml.Unmarshal(body, zp.Root)
-	if err != nil {
+	if err := xml.Unmarshal(body, zp.Description); err != nil {
 		return nil, err
 	}
 
-	zp.Services = &Services{
-		AlarmClock: clk.NewService(
-			clk.WithLocation(zp.location),
-			clk.WithClient(zp.client),
-		),
-		AudioIn: ain.NewService(
-			ain.WithLocation(zp.location),
-			ain.WithClient(zp.client),
-		),
-		AVTransport: avt.NewService(
-			avt.WithLocation(zp.location),
-			avt.WithClient(zp.client),
-		),
-		ConnectionManager: con.NewService(
-			con.WithLocation(zp.location),
-			con.WithClient(zp.client),
-		),
-		ContentDirectory: dir.NewService(
-			dir.WithLocation(zp.location),
-			dir.WithClient(zp.client),
-		),
-		DeviceProperties: dev.NewService(
-			dev.WithLocation(zp.location),
-			dev.WithClient(zp.client),
-		),
-		GroupManagement: gmn.NewService(
-			gmn.WithLocation(zp.location),
-			gmn.WithClient(zp.client),
-		),
-		GroupRenderingControl: rcg.NewService(
-			rcg.WithLocation(zp.location),
-			rcg.WithClient(zp.client),
-		),
-		MusicServices: mus.NewService(
-			mus.WithLocation(zp.location),
-			mus.WithClient(zp.client),
-		),
-		QPlay: ply.NewService(
-			ply.WithLocation(zp.location),
-			ply.WithClient(zp.client),
-		),
-		Queue: que.NewService(
-			que.WithLocation(zp.location),
-			que.WithClient(zp.client),
-		),
-		RenderingControl: ren.NewService(
-			ren.WithLocation(zp.location),
-			ren.WithClient(zp.client),
-		),
-		SystemProperties: sys.NewService(
-			sys.WithLocation(zp.location),
-			sys.WithClient(zp.client),
-		),
-		VirtualLineIn: vli.NewService(
-			vli.WithLocation(zp.location),
-			vli.WithClient(zp.client),
-		),
-		ZoneGroupTopology: zgt.NewService(
-			zgt.WithLocation(zp.location),
-			zgt.WithClient(zp.client),
-		),
+	zp.Services, err = newServices(location, zp.client)
+	if err != nil {
+		return nil, err
 	}
-
 	return zp, nil
 }
 
-// Client returns the underlying http client.
+func newServices(loc *url.URL, c *http.Client) (*Services, error) {
+	var (
+		s   Services
+		err error
+	)
+	if s.AlarmClock, err = clk.NewService(loc, clk.WithClient(c)); err != nil {
+		return nil, err
+	}
+	if s.AudioIn, err = ain.NewService(loc, ain.WithClient(c)); err != nil {
+		return nil, err
+	}
+	if s.AVTransport, err = avt.NewService(loc, avt.WithClient(c)); err != nil {
+		return nil, err
+	}
+	if s.ConnectionManager, err = con.NewService(loc, con.WithClient(c)); err != nil {
+		return nil, err
+	}
+	if s.MediaServerConnectionManager, err = con.NewService(loc, con.WithClient(c),
+		con.WithPaths("/MediaServer/ConnectionManager/Control", "/MediaServer/ConnectionManager/Event")); err != nil {
+		return nil, err
+	}
+	if s.ContentDirectory, err = dir.NewService(loc, dir.WithClient(c)); err != nil {
+		return nil, err
+	}
+	if s.DeviceProperties, err = dev.NewService(loc, dev.WithClient(c)); err != nil {
+		return nil, err
+	}
+	if s.GroupManagement, err = gmn.NewService(loc, gmn.WithClient(c)); err != nil {
+		return nil, err
+	}
+	if s.GroupRenderingControl, err = rcg.NewService(loc, rcg.WithClient(c)); err != nil {
+		return nil, err
+	}
+	if s.MusicServices, err = mus.NewService(loc, mus.WithClient(c)); err != nil {
+		return nil, err
+	}
+	if s.QPlay, err = ply.NewService(loc, ply.WithClient(c)); err != nil {
+		return nil, err
+	}
+	if s.Queue, err = que.NewService(loc, que.WithClient(c)); err != nil {
+		return nil, err
+	}
+	if s.RenderingControl, err = ren.NewService(loc, ren.WithClient(c)); err != nil {
+		return nil, err
+	}
+	if s.SystemProperties, err = sys.NewService(loc, sys.WithClient(c)); err != nil {
+		return nil, err
+	}
+	if s.VirtualLineIn, err = vli.NewService(loc, vli.WithClient(c)); err != nil {
+		return nil, err
+	}
+	if s.ZoneGroupTopology, err = zgt.NewService(loc, zgt.WithClient(c)); err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+// Client returns the HTTP client used to talk to the player.
 func (z *ZonePlayer) Client() *http.Client {
 	return z.client
 }
 
+// Location returns the URL of the player's device description.
 func (z *ZonePlayer) Location() *url.URL {
 	return z.location
 }
 
+// RoomName returns the name of the room the player is in.
 func (z *ZonePlayer) RoomName() string {
-	return z.Root.Device.RoomName
+	return z.Description.Device.RoomName
 }
 
+// ModelName returns the player's model, e.g. "Sonos Era 300".
 func (z *ZonePlayer) ModelName() string {
-	return z.Root.Device.ModelName
+	return z.Description.Device.ModelName
 }
 
+// HardwareVersion returns the player's hardware version.
 func (z *ZonePlayer) HardwareVersion() string {
-	return z.Root.Device.HardwareVersion
+	return z.Description.Device.HardwareVersion
 }
 
+// SoftwareVersion returns the player's software version.
 func (z *ZonePlayer) SoftwareVersion() string {
-	return z.Root.Device.SoftwareVersion
+	return z.Description.Device.SoftwareVersion
 }
 
+// SerialNumber returns the player's serial number.
 func (z *ZonePlayer) SerialNumber() string {
-	return z.Root.Device.SerialNum
+	return z.Description.Device.SerialNum
 }
 
+// MACAddress returns the player's MAC address.
 func (z *ZonePlayer) MACAddress() string {
-	return z.Root.Device.MACAddress
+	return z.Description.Device.MACAddress
 }
 
+// ModelDescription returns the player's model description.
 func (z *ZonePlayer) ModelDescription() string {
-	return z.Root.Device.ModelDescription
+	return z.Description.Device.ModelDescription
 }
 
+// UUID returns the device UDN without its "uuid:" prefix, e.g.
+// "RINCON_000E58CDCA4001400". Zone group topology refers to players by it.
 func (z *ZonePlayer) UUID() string {
-	return strings.Split(z.Root.Device.UDN, ":")[1]
-}
-
-func (z *ZonePlayer) IsCoordinator() bool {
-	zoneGroupState, err := z.GetZoneGroupState()
-	if err != nil {
-		return false
+	if _, uuid, ok := strings.Cut(z.Description.Device.UDN, ":"); ok {
+		return uuid
 	}
-	for _, group := range zoneGroupState.ZoneGroups {
-		if "uuid:"+group.Coordinator == z.Root.Device.UDN {
-			return true
-		}
+	return z.Description.Device.UDN
+}
+
+// IsCoordinator reports whether the player coordinates its group. The
+// answer is cached for 30 seconds.
+func (z *ZonePlayer) IsCoordinator(ctx context.Context) (bool, error) {
+	z.coordinatorMu.Lock()
+	if time.Now().Before(z.coordinatorExpAt) {
+		v := z.coordinatorVal
+		z.coordinatorMu.Unlock()
+		return v, nil
 	}
+	z.coordinatorMu.Unlock()
 
-	return false
-}
-
-func (z *ZonePlayer) GetZoneGroupState() (*ZoneGroupState, error) {
-	zoneGroupStateResponse, err := z.ZoneGroupTopology.GetZoneGroupState(&zgt.GetZoneGroupStateArgs{})
-	if err != nil {
-		return nil, err
-	}
-	var zoneGroupState ZoneGroupState
-	err = xml.Unmarshal([]byte(zoneGroupStateResponse.ZoneGroupState), &zoneGroupState)
-	if err != nil {
-		return nil, err
-	}
-
-	return &zoneGroupState, nil
-}
-
-func (z *ZonePlayer) GetVolume() (int, error) {
-	res, err := z.RenderingControl.GetVolume(&ren.GetVolumeArgs{Channel: "Master"})
-	if err != nil {
-		return 0, err
-	}
-
-	return int(res.CurrentVolume), err
-}
-
-func (z *ZonePlayer) GetGroupVolume() (int, error) {
-	res, err := z.GroupRenderingControl.GetGroupVolume(&rcg.GetGroupVolumeArgs{InstanceID: 0})
-	if err != nil {
-		return 0, err
-	}
-
-	return int(res.CurrentVolume), err
-}
-
-func (z *ZonePlayer) SetVolume(desiredVolume int) error {
-	_, err := z.RenderingControl.SetVolume(&ren.SetVolumeArgs{
-		Channel:       "Master",
-		DesiredVolume: uint16(desiredVolume)})
-	return err
-}
-
-func (z *ZonePlayer) SetGroupVolume(desiredVolume int) error {
-	_, err := z.GroupRenderingControl.SnapshotGroupVolume(&rcg.SnapshotGroupVolumeArgs{})
-	if err != nil {
-		return err
-	}
-	_, err = z.GroupRenderingControl.SetGroupVolume(&rcg.SetGroupVolumeArgs{
-		InstanceID:    0,
-		DesiredVolume: uint16(desiredVolume),
-	})
-	return err
-}
-
-func (z *ZonePlayer) Play() error {
-	_, err := z.AVTransport.Play(&avt.PlayArgs{
-		Speed: "1",
-	})
-	return err
-}
-
-func (z *ZonePlayer) Stop() error {
-	_, err := z.AVTransport.Stop(&avt.StopArgs{})
-	return err
-}
-
-func (z *ZonePlayer) Pause() error {
-	_, err := z.AVTransport.Pause(&avt.PauseArgs{InstanceID: 0})
-	return err
-}
-
-func (z *ZonePlayer) Next() error {
-	_, err := z.AVTransport.Next(&avt.NextArgs{InstanceID: 0})
-	return err
-}
-
-func (z *ZonePlayer) Previous() error {
-	_, err := z.AVTransport.Previous(&avt.PreviousArgs{InstanceID: 0})
-	return err
-}
-
-func (z *ZonePlayer) GetPositionInfo() (*avt.GetPositionInfoResponse, error) {
-	return z.AVTransport.GetPositionInfo(&avt.GetPositionInfoArgs{InstanceID: 0})
-}
-
-func (z *ZonePlayer) GetZoneGroupAttributes() (*zgt.GetZoneGroupAttributesResponse, error) {
-	return z.ZoneGroupTopology.GetZoneGroupAttributes(&zgt.GetZoneGroupAttributesArgs{})
-}
-
-func (z *ZonePlayer) ListQueue() ([]didl.Item, error) {
-	browseRes, err := z.Queue.Browse(&que.BrowseArgs{QueueID: 0, StartingIndex: 0, RequestedCount: 100})
-	if err != nil {
-		return nil, err
-	}
-
-	var lite didl.Lite
-	if err := xml.Unmarshal([]byte(browseRes.Result), &lite); err != nil {
-		return nil, err
-	}
-
-	return lite.Item, nil
-}
-
-func (z *ZonePlayer) Mute() error {
-	_, err := z.RenderingControl.SetMute(&ren.SetMuteArgs{InstanceID: 0, Channel: "Master", DesiredMute: true})
-	return err
-}
-
-func (z *ZonePlayer) Unmute() error {
-	_, err := z.RenderingControl.SetMute(&ren.SetMuteArgs{InstanceID: 0, Channel: "Master", DesiredMute: false})
-	return err
-}
-
-func (z *ZonePlayer) IsMuted() (bool, error) {
-	res, err := z.RenderingControl.GetMute(&ren.GetMuteArgs{InstanceID: 0, Channel: "Master"})
+	state, err := z.ZoneGroupState(ctx)
 	if err != nil {
 		return false, err
 	}
-	return res.CurrentMute, nil
-}
-
-func (z *ZonePlayer) GetAudioInputAttributes() (*ain.GetAudioInputAttributesResponse, error) {
-	return z.AudioIn.GetAudioInputAttributes(&ain.GetAudioInputAttributesArgs{})
-}
-
-func (z *ZonePlayer) SetAudioInputAttributes(desiredName, desiredIcon string) error {
-	_, err := z.AudioIn.SetAudioInputAttributes(&ain.SetAudioInputAttributesArgs{DesiredName: desiredName, DesiredIcon: desiredIcon})
-	return err
-}
-
-func (z *ZonePlayer) GetLineInLevel() (*ain.GetLineInLevelResponse, error) {
-	return z.AudioIn.GetLineInLevel(&ain.GetLineInLevelArgs{})
-}
-
-func (z *ZonePlayer) SetLineInLevel(desiredLeftLineInLevel, desiredRightLineInLevel int32) error {
-	_, err := z.AudioIn.SetLineInLevel(&ain.SetLineInLevelArgs{DesiredLeftLineInLevel: desiredLeftLineInLevel, DesiredRightLineInLevel: desiredRightLineInLevel})
-	return err
-}
-
-func (z *ZonePlayer) SelectAudio(objectID string) error {
-	_, err := z.AudioIn.SelectAudio(&ain.SelectAudioArgs{ObjectID: objectID})
-	return err
-}
-
-func (z *ZonePlayer) GetZoneInfo() (*dev.GetZoneInfoResponse, error) {
-	return z.DeviceProperties.GetZoneInfo(&dev.GetZoneInfoArgs{})
-}
-
-func (z *ZonePlayer) SwitchToLineIn() error {
 	uuid := z.UUID()
-	_, err := z.AVTransport.SetAVTransportURI(&avt.SetAVTransportURIArgs{InstanceID: 0, CurrentURI: fmt.Sprintf("x-rincon-stream:%s", uuid), CurrentURIMetaData: ""})
-	return err
+	result := slices.ContainsFunc(state.ZoneGroups, func(g ZoneGroup) bool { return g.Coordinator == uuid })
+
+	z.coordinatorMu.Lock()
+	z.coordinatorVal = result
+	z.coordinatorExpAt = time.Now().Add(coordinatorCacheTTL)
+	z.coordinatorMu.Unlock()
+
+	return result, nil
 }
 
-func (z *ZonePlayer) SwitchToQueue() error {
-	uuid := z.UUID()
-	_, err := z.AVTransport.SetAVTransportURI(&avt.SetAVTransportURIArgs{InstanceID: 0, CurrentURI: fmt.Sprintf("x-rincon-queue:%s#0", uuid), CurrentURIMetaData: ""})
-	return err
-}
-
-func (z *ZonePlayer) SetAVTransportURI(url string) error {
-	_, err := z.AVTransport.SetAVTransportURI(&avt.SetAVTransportURIArgs{
-		CurrentURI: url,
-	})
-	return err
-}
-
-// Event processes incoming UPnP events and dispatches them to the registered event handler.
-// It handles complex events (LastChange, ZoneGroupState) by unmarshalling their XML payload,
-// and simple events by passing the typed value directly.
-//
-// Handled Services:
-//   - AVTransport (LastChange)
-//   - RenderingControl (LastChange)
-//   - Queue (LastChange)
-//   - ZoneGroupTopology (AvailableSoftwareUpdate, ZoneGroupState, etc.)
-//   - AlarmClock
-//   - AudioIn
-//   - ConnectionManager
-//   - ContentDirectory
-//   - DeviceProperties
-//   - GroupManagement
-//   - GroupRenderingControl
-//   - MusicServices
-//   - SystemProperties
-//   - VirtualLineIn
-func (zp *ZonePlayer) Event(evt interface{}, fn EventHandlerFunc) {
-	switch e := evt.(type) {
-	case avt.LastChange:
-		var levt AVTransportLastChange
-		err := xml.Unmarshal([]byte(e), &levt)
-		if err != nil {
-			fmt.Printf("Unmarshal failure: %s", err)
-			return
-		}
-		fn(levt)
-	case ren.LastChange:
-		var levt RenderingControlLastChange
-		err := xml.Unmarshal([]byte(e), &levt)
-		if err != nil {
-			fmt.Printf("Unmarshal failure: %s", err)
-			return
-		}
-		fn(levt)
-
-	case que.LastChange:
-		var levt QueueLastChange
-		err := xml.Unmarshal([]byte(e), &levt)
-		if err != nil {
-			fmt.Printf("Unmarshal failure: %s", err)
-			return
-		}
-		fn(levt)
-	case zgt.AvailableSoftwareUpdate:
-		var levt ZoneGroupTopologyAvailableSoftwareUpdate
-		err := xml.Unmarshal([]byte(e), &levt)
-		if err != nil {
-			fmt.Printf("Unmarshal failure: %s", err)
-			return
-		}
-		fn(levt)
-	case zgt.ZoneGroupState:
-		var levt ZoneGroupTopologyZoneGroupState
-		err := xml.Unmarshal([]byte(e), &levt)
-		if err != nil {
-			fmt.Printf("Unmarshal failure: %s", err)
-			return
-		}
-		fn(levt)
-	// AlarmClock
-	case clk.TimeZone:
-		fn(e)
-	case clk.TimeServer:
-		fn(e)
-	case clk.TimeGeneration:
-		fn(e)
-	case clk.AlarmListVersion:
-		fn(e)
-	case clk.DailyIndexRefreshTime:
-		fn(e)
-	case clk.TimeFormat:
-		fn(e)
-	case clk.DateFormat:
-		fn(e)
-	// AudioIn
-	case ain.AudioInputName:
-		fn(e)
-	case ain.Icon:
-		fn(e)
-	case ain.LineInConnected:
-		fn(e)
-	case ain.LeftLineInLevel:
-		fn(e)
-	case ain.RightLineInLevel:
-		fn(e)
-	case ain.Playing:
-		fn(e)
-	// ConnectionManager
-	case con.SourceProtocolInfo:
-		fn(e)
-	case con.SinkProtocolInfo:
-		fn(e)
-	case con.CurrentConnectionIDs:
-		fn(e)
-	// ContentDirectory
-	case dir.SystemUpdateID:
-		fn(e)
-	case dir.ContainerUpdateIDs:
-		fn(e)
-	case dir.ShareIndexInProgress:
-		fn(e)
-	case dir.ShareIndexLastError:
-		fn(e)
-	case dir.UserRadioUpdateID:
-		fn(e)
-	case dir.SavedQueuesUpdateID:
-		fn(e)
-	case dir.ShareListUpdateID:
-		fn(e)
-	case dir.RecentlyPlayedUpdateID:
-		fn(e)
-	case dir.Browseable:
-		fn(e)
-	case dir.RadioFavoritesUpdateID:
-		fn(e)
-	case dir.RadioLocationUpdateID:
-		fn(e)
-	case dir.FavoritesUpdateID:
-		fn(e)
-	case dir.FavoritePresetsUpdateID:
-		fn(e)
-	// DeviceProperties
-	case dev.SettingsReplicationState:
-		fn(e)
-	case dev.ZoneName:
-		fn(e)
-	case dev.Icon:
-		fn(e)
-	case dev.Configuration:
-		fn(e)
-	case dev.Invisible:
-		fn(e)
-	case dev.IsZoneBridge:
-		fn(e)
-	case dev.AirPlayEnabled:
-		fn(e)
-	case dev.SupportsAudioIn:
-		fn(e)
-	case dev.SupportsAudioClip:
-		fn(e)
-	case dev.IsIdle:
-		fn(e)
-	case dev.MoreInfo:
-		fn(e)
-	case dev.ChannelMapSet:
-		fn(e)
-	case dev.HTSatChanMapSet:
-		fn(e)
-	case dev.HTBondedZoneCommitState:
-		fn(e)
-	case dev.Orientation:
-		fn(e)
-	case dev.LastChangedPlayState:
-		fn(e)
-	case dev.RoomCalibrationState:
-		fn(e)
-	case dev.AvailableRoomCalibration:
-		fn(e)
-	case dev.TVConfigurationError:
-		fn(e)
-	case dev.HdmiCecAvailable:
-		fn(e)
-	case dev.WirelessMode:
-		fn(e)
-	case dev.WirelessLeafOnly:
-		fn(e)
-	case dev.HasConfiguredSSID:
-		fn(e)
-	case dev.ChannelFreq:
-		fn(e)
-	case dev.BehindWifiExtender:
-		fn(e)
-	case dev.WifiEnabled:
-		fn(e)
-	case dev.EthLink:
-		fn(e)
-	case dev.ConfigMode:
-		fn(e)
-	case dev.SecureRegState:
-		fn(e)
-	case dev.VoiceConfigState:
-		fn(e)
-	case dev.MicEnabled:
-		fn(e)
-	// GroupManagement
-	case gmn.GroupCoordinatorIsLocal:
-		fn(e)
-	case gmn.LocalGroupUUID:
-		fn(e)
-	case gmn.VirtualLineInGroupID:
-		fn(e)
-	case gmn.ResetVolumeAfter:
-		fn(e)
-	case gmn.VolumeAVTransportURI:
-		fn(e)
-	// GroupRenderingControl
-	case rcg.GroupMute:
-		fn(e)
-	case rcg.GroupVolume:
-		fn(e)
-	case rcg.GroupVolumeChangeable:
-		fn(e)
-	// MusicServices
-	case mus.ServiceListVersion:
-		fn(e)
-	// SystemProperties
-	case sys.CustomerID:
-		fn(e)
-	case sys.UpdateID:
-		fn(e)
-	case sys.UpdateIDX:
-		fn(e)
-	case sys.VoiceUpdateID:
-		fn(e)
-	case sys.ThirdPartyHash:
-		fn(e)
-	// VirtualLineIn
-	case vli.CurrentTrackMetaData:
-		fn(e)
-	// ZoneGroupTopology
-	case zgt.ThirdPartyMediaServersX:
-		fn(e)
-	case zgt.AlarmRunSequence:
-		fn(e)
-	case zgt.MuseHouseholdId:
-		fn(e)
-	case zgt.ZoneGroupName:
-		fn(e)
-	case zgt.ZoneGroupID:
-		fn(e)
-	case zgt.ZonePlayerUUIDsInGroup:
-		fn(e)
-	case zgt.AreasUpdateID:
-		fn(e)
-	case zgt.SourceAreasUpdateID:
-		fn(e)
-	case zgt.NetsettingsUpdateID:
-		fn(e)
-	default:
-		fmt.Printf("Unhandeld event %T: %s\n", e, e)
+// playerAt returns the player whose description is at location.
+func playerAt(ctx context.Context, location string, c *http.Client) (*ZonePlayer, error) {
+	u, err := url.Parse(location)
+	if err != nil {
+		return nil, err
 	}
+	return NewZonePlayer(ctx, u, WithClient(c))
+}
+
+// ZoneGroupState returns the household's zone group topology: every group,
+// its coordinator and members, as this player sees it. Every player sees
+// the same topology.
+func (z *ZonePlayer) ZoneGroupState(ctx context.Context) (*ZoneGroupState, error) {
+	res, err := z.ZoneGroupTopology.GetZoneGroupState(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	var state ZoneGroupState
+	if err := xml.Unmarshal([]byte(res.ZoneGroupState), &state); err != nil {
+		return nil, err
+	}
+	return &state, nil
 }

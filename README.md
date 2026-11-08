@@ -11,6 +11,12 @@ Forked from https://github.com/szatmary/sonos.
 There are few changes have been made mostly around the structure of the generated code and how it is consumed.
 There are also improvements to the event lifecycle (subscribe/renew/unsubscribe) with some other miscellaneous changes.
 
+# sonosctl
+
+[`cmd/sonosctl`](cmd/sonosctl) controls your players from the command line
+(`sonosctl ls`, `sonosctl play kitchen`, `sonosctl watch kitchen`, ...) and
+is the library's largest example.
+
 # Services
 
 The service implimentations are automatically generated from the service definition XML files obtained from the Sonos devices via `makeservice.go.`

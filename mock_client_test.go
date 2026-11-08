@@ -42,14 +42,17 @@ func (m *MockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 
 // Helper to create a mocked ZonePlayer
 func NewMockZonePlayer(t *testing.T, handlers map[string]func(*http.Request) (*http.Response, error)) *ZonePlayer {
-	mockClient := &http.Client{
-		Transport: &MockRoundTripper{Handlers: handlers},
-	}
+	return NewMockZonePlayerWithTransport(t, &MockRoundTripper{Handlers: handlers})
+}
+
+// NewMockZonePlayerWithTransport returns a player whose requests go to rt.
+func NewMockZonePlayerWithTransport(t *testing.T, rt http.RoundTripper) *ZonePlayer {
+	mockClient := &http.Client{Transport: rt}
 
 	// The location doesn't matter much as we intercept requests, but it needs to be valid
 	loc, _ := url.Parse("http://192.168.1.100:1400/xml/device_description.xml")
 
-	zp, err := NewZonePlayer(WithClient(mockClient), WithLocation(loc))
+	zp, err := NewZonePlayer(t.Context(), loc, WithClient(mockClient))
 	if err != nil {
 		t.Fatalf("Failed to create mock ZonePlayer: %v", err)
 	}
@@ -91,3 +94,17 @@ const mockDeviceDescription = `<?xml version="1.0" encoding="utf-8" ?>
         </serviceList>
     </device>
 </root>`
+
+// groupOf returns a single-room group whose coordinator is zp.
+func groupOf(zp *ZonePlayer) *Group {
+	cache := &playerCache{client: zp.client, byUUID: map[string]*ZonePlayer{zp.UUID(): zp}}
+	r := &Room{Name: zp.RoomName(), UUID: zp.UUID(), Speakers: 1, location: zp.location.String(), players: cache}
+	g := &Group{ID: zp.UUID() + ":1", Coordinator: r, Rooms: []*Room{r}}
+	r.group = g
+	return g
+}
+
+// roomOf returns the single room of groupOf(zp).
+func roomOf(zp *ZonePlayer) *Room {
+	return groupOf(zp).Coordinator
+}

@@ -2,9 +2,14 @@ package sonos
 
 import (
 	"bytes"
+	"encoding/xml"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
+	"time"
+
+	ain "github.com/caglar10ur/sonos/services/audioin"
 )
 
 // Helper to wrap body in SOAP envelope
@@ -58,7 +63,7 @@ func TestGetVolume(t *testing.T) {
 
 	zp := NewMockZonePlayer(t, handlers)
 
-	vol, err := zp.GetVolume()
+	vol, err := roomOf(zp).Volume(t.Context())
 	if err != nil {
 		t.Fatalf("GetVolume failed: %v", err)
 	}
@@ -87,7 +92,7 @@ func TestSetVolume(t *testing.T) {
 
 	zp := NewMockZonePlayer(t, handlers)
 
-	err := zp.SetVolume(25)
+	err := roomOf(zp).SetVolume(t.Context(), 25)
 	if err != nil {
 		t.Fatalf("SetVolume failed: %v", err)
 	}
@@ -103,11 +108,11 @@ func TestPlaybackControls(t *testing.T) {
 		action string
 		call   func(*ZonePlayer) error
 	}{
-		{"Play", "Play", func(zp *ZonePlayer) error { return zp.Play() }},
-		{"Stop", "Stop", func(zp *ZonePlayer) error { return zp.Stop() }},
-		{"Pause", "Pause", func(zp *ZonePlayer) error { return zp.Pause() }},
-		{"Next", "Next", func(zp *ZonePlayer) error { return zp.Next() }},
-		{"Previous", "Previous", func(zp *ZonePlayer) error { return zp.Previous() }},
+		{"Play", "Play", func(zp *ZonePlayer) error { return groupOf(zp).Play(t.Context()) }},
+		{"Stop", "Stop", func(zp *ZonePlayer) error { return groupOf(zp).Stop(t.Context()) }},
+		{"Pause", "Pause", func(zp *ZonePlayer) error { return groupOf(zp).Pause(t.Context()) }},
+		{"Next", "Next", func(zp *ZonePlayer) error { return groupOf(zp).Next(t.Context()) }},
+		{"Previous", "Previous", func(zp *ZonePlayer) error { return groupOf(zp).Previous(t.Context()) }},
 	}
 
 	for _, tt := range tests {
@@ -136,7 +141,7 @@ func TestListQueue(t *testing.T) {
 
 	zp := NewMockZonePlayer(t, handlers)
 
-	items, err := zp.ListQueue()
+	items, err := groupOf(zp).Queue(t.Context())
 	if err != nil {
 		t.Fatalf("ListQueue failed: %v", err)
 	}
@@ -150,32 +155,50 @@ func TestListQueue(t *testing.T) {
 	}
 }
 
-func TestGetPositionInfo(t *testing.T) {
-	body := `<Track>2</Track>
-      <TrackDuration>0:04:05</TrackDuration>
-      <TrackMetaData>&lt;DIDL-Lite...&gt;...&lt;/DIDL-Lite&gt;</TrackMetaData>
-      <TrackURI>x-sonos-http:track.mp3</TrackURI>
-      <RelTime>0:01:23</RelTime>
-      <AbsTime>0:01:23</AbsTime>
-      <RelCount>2147483647</RelCount>
-      <AbsCount>2147483647</AbsCount>`
+func TestNowPlaying(t *testing.T) {
+	meta := `<DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/" xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/">` +
+		`<item id="-1" parentID="-1"><dc:title>Karma Police</dc:title><dc:creator>Radiohead</dc:creator>` +
+		`<upnp:album>OK Computer</upnp:album><upnp:albumArtURI>/getaa?s=1&amp;u=x</upnp:albumArtURI></item></DIDL-Lite>`
+	var escaped strings.Builder
+	xml.EscapeText(&escaped, []byte(meta))
 
 	handlers := map[string]func(*http.Request) (*http.Response, error){
-		"urn:schemas-upnp-org:service:AVTransport:1#GetPositionInfo": mockResponseHandler("AVTransport", "GetPositionInfo", body),
+		"urn:schemas-upnp-org:service:AVTransport:1#GetTransportInfo": mockResponseHandler("AVTransport", "GetTransportInfo",
+			`<CurrentTransportState>PLAYING</CurrentTransportState><CurrentTransportStatus>OK</CurrentTransportStatus><CurrentSpeed>1</CurrentSpeed>`),
+		"urn:schemas-upnp-org:service:AVTransport:1#GetPositionInfo": mockResponseHandler("AVTransport", "GetPositionInfo",
+			`<Track>2</Track><TrackDuration>0:04:24</TrackDuration><TrackMetaData>`+escaped.String()+`</TrackMetaData>`+
+				`<TrackURI>x-sonos-spotify:track</TrackURI><RelTime>0:01:23.500</RelTime><AbsTime>NOT_IMPLEMENTED</AbsTime>`),
+		"urn:schemas-upnp-org:service:AVTransport:1#GetMediaInfo": mockResponseHandler("AVTransport", "GetMediaInfo",
+			`<NrTracks>12</NrTracks><CurrentURI>x-rincon-queue:RINCON_000E58CDCA4001400#0</CurrentURI>`),
 	}
-
-	zp := NewMockZonePlayer(t, handlers)
-
-	info, err := zp.GetPositionInfo()
+	np, err := groupOf(NewMockZonePlayer(t, handlers)).NowPlaying(t.Context())
 	if err != nil {
-		t.Fatalf("GetPositionInfo failed: %v", err)
+		t.Fatal(err)
 	}
+	if np.State != Playing || np.QueuePosition != 2 || np.Position != 83500*time.Millisecond {
+		t.Errorf("got state %q, queue position %d, position %v", np.State, np.QueuePosition, np.Position)
+	}
+	want := Track{
+		Title: "Karma Police", Artist: "Radiohead", Album: "OK Computer",
+		AlbumArtURI: "http://192.168.1.100:1400/getaa?s=1&u=x",
+		URI:         "x-sonos-spotify:track", Duration: 4*time.Minute + 24*time.Second,
+	}
+	if np.Track == nil || *np.Track != want {
+		t.Errorf("track = %+v, want %+v", np.Track, want)
+	}
+}
 
-	if info.Track != 2 {
-		t.Errorf("Expected Track 2, got %d", info.Track)
-	}
-	if info.RelTime != "0:01:23" {
-		t.Errorf("Expected RelTime 0:01:23, got %s", info.RelTime)
+func TestParseDuration(t *testing.T) {
+	for in, want := range map[string]time.Duration{
+		"0:04:58":         4*time.Minute + 58*time.Second,
+		"1:02:03.250":     time.Hour + 2*time.Minute + 3250*time.Millisecond,
+		"NOT_IMPLEMENTED": 0,
+		"":                0,
+		"4:58":            0,
+	} {
+		if got := parseDuration(in); got != want {
+			t.Errorf("parseDuration(%q) = %v, want %v", in, got, want)
+		}
 	}
 }
 
@@ -211,18 +234,18 @@ func TestMuteUnmute(t *testing.T) {
 
 	zp := NewMockZonePlayer(t, handlers)
 
-	if err := zp.Mute(); err != nil {
+	if err := roomOf(zp).Mute(t.Context()); err != nil {
 		t.Fatalf("Mute failed: %v", err)
 	}
-	muted, _ := zp.IsMuted()
+	muted, _ := roomOf(zp).IsMuted(t.Context())
 	if !muted {
 		t.Error("Expected state to be muted after Mute()")
 	}
 
-	if err := zp.Unmute(); err != nil {
+	if err := roomOf(zp).Unmute(t.Context()); err != nil {
 		t.Fatalf("Unmute failed: %v", err)
 	}
-	muted, _ = zp.IsMuted()
+	muted, _ = roomOf(zp).IsMuted(t.Context())
 	if muted {
 		t.Error("Expected state to be unmuted after Unmute()")
 	}
@@ -241,7 +264,7 @@ func TestGetZoneInfo(t *testing.T) {
 
 	zp := NewMockZonePlayer(t, handlers)
 
-	info, err := zp.GetZoneInfo()
+	info, err := zp.DeviceProperties.GetZoneInfo(t.Context(), nil)
 	if err != nil {
 		t.Fatalf("GetZoneInfo failed: %v", err)
 	}
@@ -287,8 +310,8 @@ func TestIsCoordinator(t *testing.T) {
 	}
 
 	zp := NewMockZonePlayer(t, handlersCoordinator)
-	if !zp.IsCoordinator() {
-		t.Error("Expected IsCoordinator() to return true")
+	if ok, err := zp.IsCoordinator(t.Context()); err != nil || !ok {
+		t.Errorf("IsCoordinator() = %v, %v; want true", ok, err)
 	}
 
 	innerXMLMember := `&lt;ZoneGroupState&gt;&lt;ZoneGroups&gt;&lt;ZoneGroup Coordinator=&quot;RINCON_OTHER&quot; ID=&quot;RINCON_OTHER:1&quot;&gt;&lt;ZoneGroupMember UUID=&quot;RINCON_000E58CDCA4001400&quot; Location=&quot;http://192.168.1.100:1400/xml/device_description.xml&quot; ZoneName=&quot;Kitchen&quot; /&gt;&lt;/ZoneGroup&gt;&lt;/ZoneGroups&gt;&lt;/ZoneGroupState&gt;`
@@ -297,8 +320,8 @@ func TestIsCoordinator(t *testing.T) {
 	}
 
 	zpMember := NewMockZonePlayer(t, handlersMember)
-	if zpMember.IsCoordinator() {
-		t.Error("Expected IsCoordinator() to return false")
+	if ok, err := zpMember.IsCoordinator(t.Context()); err != nil || ok {
+		t.Errorf("IsCoordinator() = %v, %v; want false", ok, err)
 	}
 }
 
@@ -311,7 +334,7 @@ func TestGroupControls(t *testing.T) {
 
 	zp := NewMockZonePlayer(t, handlers)
 
-	vol, err := zp.GetGroupVolume()
+	vol, err := groupOf(zp).Volume(t.Context())
 	if err != nil {
 		t.Fatalf("GetGroupVolume failed: %v", err)
 	}
@@ -319,7 +342,7 @@ func TestGroupControls(t *testing.T) {
 		t.Errorf("Expected group volume 50, got %d", vol)
 	}
 
-	if err := zp.SetGroupVolume(60); err != nil {
+	if err := groupOf(zp).SetVolume(t.Context(), 60); err != nil {
 		t.Fatalf("SetGroupVolume failed: %v", err)
 	}
 }
@@ -337,7 +360,7 @@ func TestZoneGroupState(t *testing.T) {
 
 	zp := NewMockZonePlayer(t, handlers)
 
-	state, err := zp.GetZoneGroupState()
+	state, err := zp.ZoneGroupState(t.Context())
 	if err != nil {
 		t.Fatalf("GetZoneGroupState failed: %v", err)
 	}
@@ -345,7 +368,7 @@ func TestZoneGroupState(t *testing.T) {
 		t.Errorf("Expected 1 ZoneGroup, got %d", len(state.ZoneGroups))
 	}
 
-	attrs, err := zp.GetZoneGroupAttributes()
+	attrs, err := zp.ZoneGroupTopology.GetZoneGroupAttributes(t.Context(), nil)
 	if err != nil {
 		t.Fatalf("GetZoneGroupAttributes failed: %v", err)
 	}
@@ -366,7 +389,7 @@ func TestInputOutput(t *testing.T) {
 
 	zp := NewMockZonePlayer(t, handlers)
 
-	attrs, err := zp.GetAudioInputAttributes()
+	attrs, err := zp.AudioIn.GetAudioInputAttributes(t.Context(), nil)
 	if err != nil {
 		t.Fatalf("GetAudioInputAttributes failed: %v", err)
 	}
@@ -374,11 +397,11 @@ func TestInputOutput(t *testing.T) {
 		t.Errorf("Expected CurrentName Turntable, got %s", attrs.CurrentName)
 	}
 
-	if err := zp.SetAudioInputAttributes("Radio", "radio.png"); err != nil {
+	if _, err := zp.AudioIn.SetAudioInputAttributes(t.Context(), &ain.SetAudioInputAttributesArgs{DesiredName: "Radio", DesiredIcon: "radio.png"}); err != nil {
 		t.Fatalf("SetAudioInputAttributes failed: %v", err)
 	}
 
-	levels, err := zp.GetLineInLevel()
+	levels, err := zp.AudioIn.GetLineInLevel(t.Context(), nil)
 	if err != nil {
 		t.Fatalf("GetLineInLevel failed: %v", err)
 	}
@@ -386,23 +409,42 @@ func TestInputOutput(t *testing.T) {
 		t.Errorf("Expected LeftLevel 10, got %d", levels.CurrentLeftLineInLevel)
 	}
 
-	if err := zp.SetLineInLevel(5, 5); err != nil {
+	if _, err := zp.AudioIn.SetLineInLevel(t.Context(), &ain.SetLineInLevelArgs{DesiredLeftLineInLevel: 5, DesiredRightLineInLevel: 5}); err != nil {
 		t.Fatalf("SetLineInLevel failed: %v", err)
 	}
 
-	if err := zp.SelectAudio("RINCON_AAA"); err != nil {
+	if _, err := zp.AudioIn.SelectAudio(t.Context(), &ain.SelectAudioArgs{ObjectID: "RINCON_AAA"}); err != nil {
 		t.Fatalf("SelectAudio failed: %v", err)
 	}
 
-	if err := zp.SwitchToLineIn(); err != nil {
-		t.Fatalf("SwitchToLineIn failed: %v", err)
+	g := groupOf(zp)
+	if err := g.PlayLineIn(t.Context(), g.Coordinator); err != nil {
+		t.Fatalf("PlayLineIn failed: %v", err)
 	}
 
-	if err := zp.SwitchToQueue(); err != nil {
-		t.Fatalf("SwitchToQueue failed: %v", err)
+	if err := g.PlayQueue(t.Context()); err != nil {
+		t.Fatalf("PlayQueue failed: %v", err)
 	}
 
-	if err := zp.SetAVTransportURI("x-rincon-stream:uuid"); err != nil {
-		t.Fatalf("SetAVTransportURI failed: %v", err)
+	if err := g.SetURI(t.Context(), "x-rincon-stream:uuid", ""); err != nil {
+		t.Fatalf("SetURI failed: %v", err)
+	}
+}
+
+func TestParsePosition(t *testing.T) {
+	for in, want := range map[string]time.Duration{
+		"1:30":    90 * time.Second,
+		"1:02:03": time.Hour + 2*time.Minute + 3*time.Second,
+		"90s":     90 * time.Second,
+		"0:00":    0,
+	} {
+		if got, err := ParsePosition(in); err != nil || got != want {
+			t.Errorf("ParsePosition(%q) = %v, %v; want %v", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"", "abc", "-30s", "1:x", "1:2:3:4", "-1:00"} {
+		if _, err := ParsePosition(in); err == nil {
+			t.Errorf("ParsePosition(%q) should fail", in)
+		}
 	}
 }

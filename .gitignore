@@ -1,3 +1,10 @@
 .env
 .gemini
-mcp-server/mcp-server
+.claude
+mcp/mcp-server
+mcp/mcp-client
+mcp/server/server
+mcp/client/client
+/sonosctl
+/makeservice
+/makeservices
